@@ -1,74 +1,60 @@
 using System.Globalization;
-using MeroShareBot.Shared.Config;
-using MeroShareBot.Shared.Telegram;
-using Microsoft.Extensions.Options;
-using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace MeroShareBot.Features.Profile;
 
-// Port of handleProfile / handleProfileCallback from src/bot/commands/profile.js.
 public sealed class GetProfileEndpoint(
     GetProfileHandler handler,
-    TelegramSender sender,
-    IOptions<MeroShareOptions> opts)
+    AccountStore store,
+    AccountResolver resolver,
+    TelegramSender sender)
 {
     public async Task HandleMessageAsync(Message msg, string arg)
     {
         var chatId = msg.Chat.Id;
-        var users = opts.Value.Users;
-        var user = UserResolver.Resolve(users, arg);
-
-        if (user is null)
+        var account = resolver.Resolve(chatId, arg);
+        if (account is not null)
         {
-            if (users.Count == 1)
-            {
-                await FetchAndSendProfileAsync(chatId, users[0]);
-                return;
-            }
-            var buttons = users
-                .Select((u, i) => new[]
-                {
-                    InlineKeyboardButton.WithCallbackData($"👤 {u.Username}", $"profile_user_{i}"),
-                })
-                .Append([InlineKeyboardButton.WithCallbackData($"👥 All accounts ({users.Count})", "profile_all")]);
-            await sender.SendKeyboardAsync(chatId, "Pick an account — which profile do you want to check?", buttons);
+            await FetchAndSendProfileAsync(chatId, account);
             return;
         }
 
-        await FetchAndSendProfileAsync(chatId, user);
+        var accounts = store.GetAccounts(chatId);
+        if (accounts.Count == 0)
+        {
+            await sender.SendTextAsync(chatId, "No accounts linked. Use /login to link one.");
+            return;
+        }
+
+        var buttons = accounts.Select((a, i) => new[]
+        {
+            InlineKeyboardButton.WithCallbackData($"👤 {a.Username}", $"profile_acct_{i + 1}"),
+        });
+        await sender.SendKeyboardAsync(chatId, "Pick an account — which profile do you want to check?", buttons);
     }
 
     public async Task HandleCallbackAsync(CallbackQuery cb)
     {
         if (cb.Message is not { } cbMsg) return;
         var chatId = cbMsg.Chat.Id;
-
         await sender.AnswerCallbackAsync(cb.Id);
+
         var data = cb.Data ?? "";
-        var users = opts.Value.Users;
+        if (!data.StartsWith("profile_acct_") || !int.TryParse(data["profile_acct_".Length..], out var index)) return;
 
-        if (data == "profile_all")
-        {
-            foreach (var user in users)
-            {
-                await FetchAndSendProfileAsync(chatId, user);
-            }
-            return;
-        }
-
-        if (!int.TryParse(data.Replace("profile_user_", ""), out var index)) return;
-        if (index < 0 || index >= users.Count) return;
-        await FetchAndSendProfileAsync(chatId, users[index]);
+        var account = store.GetAccount(chatId, index);
+        if (account is null) return;
+        await FetchAndSendProfileAsync(chatId, account);
     }
 
-    private async Task FetchAndSendProfileAsync(long chatId, MeroShareUser user)
+    private async Task FetchAndSendProfileAsync(long chatId, LinkedAccount account)
     {
-        var result = await handler.HandleAsync(user, text => sender.SendTextAsync(chatId, text));
+        var creds = store.Decrypt(account);
+        var result = await handler.HandleAsync(creds.Credentials, text => sender.SendTextAsync(chatId, text));
 
         if (!result.Success || result.Personal is null)
         {
-            await sender.SendTextAsync(chatId, result.Error ?? $"Could not fetch profile for {user.Username}.");
+            await sender.SendTextAsync(chatId, result.Error ?? $"Could not fetch profile for {account.Username}.");
             return;
         }
 
@@ -76,7 +62,7 @@ public sealed class GetProfileEndpoint(
         var lines = new List<string>
         {
             $"👤 {personal.Name}",
-            $"🆔 {personal.Username ?? user.Username}",
+            $"🆔 {personal.Username ?? account.Username}",
             "",
             "━━ Personal Information ━━",
             $"📋 BOID:    {personal.Boid}",

@@ -6,5 +6,7 @@ obj/
 .vs/
 *.user
 
-# Local secrets — real credentials live here, never commit
 appsettings.Development.json
+
+data/
+logs/

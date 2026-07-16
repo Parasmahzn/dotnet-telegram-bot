@@ -1,5 +1,4 @@
 using System.Collections.Concurrent;
-using MeroShareBot.Shared.Config;
 
 namespace MeroShareBot.Features.Ipo.ApplyIpo;
 
@@ -7,9 +6,9 @@ public enum ApplyStep { Accounts, Ipos }
 
 public sealed record PendingApply(
     ApplyStep Step,
-    IReadOnlyList<MeroShareUser> Users,
+    IReadOnlyList<LinkedAccount> Accounts,
     IReadOnlyList<IpoData> Ipos,
-    IReadOnlyList<MeroShareUser>? SelectedUsers = null);
+    IReadOnlyList<LinkedAccount>? SelectedAccounts = null);
 
 // Singleton — owns the multi-step keyboard state across webhook requests.
 public sealed class PendingApplyStore

@@ -1,35 +1,31 @@
-using MeroShareBot.Features.Ipo.GetOpenIpos;
-using MeroShareBot.Shared.Config;
-using MeroShareBot.Shared.Telegram;
-using Microsoft.Extensions.Options;
-using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace MeroShareBot.Features.Ipo.ApplyIpo;
 
-// Port of handleApply / handleApplyCallback / handleApplyFromSched / executeApply
-// from src/bot/commands/ipo.js — the two-step account → IPO selection state machine.
+// The two-step account -> IPO selection state machine, now sourced from this chat's own linked
+// accounts instead of a global config list.
 public sealed class ApplyIpoEndpoint(
     GetOpenIposHandler getOpenIpos,
     ApplyIpoHandler applyIpo,
     PendingApplyStore store,
-    TelegramSender sender,
-    IOptions<MeroShareOptions> opts)
+    AccountStore accountStore,
+    IOptions<MeroShareOptions> opts,
+    TelegramSender sender)
 {
     private const string SelectAccountsText = "🚀 Apply for IPO\n\nSelect accounts to apply with:";
 
     public async Task HandleMessageAsync(Message msg, string arg)
     {
         var chatId = msg.Chat.Id;
-        var users = opts.Value.Users;
-        if (users.Count == 0)
+        var accounts = accountStore.GetAccounts(chatId);
+        if (accounts.Count == 0)
         {
-            await sender.SendTextAsync(chatId, "No MeroShare accounts configured.");
+            await sender.SendTextAsync(chatId, "No accounts linked. Use /login to link one.");
             return;
         }
 
         await sender.SendTextAsync(chatId, "🔍 Fetching open IPOs...");
-        var allIpos = await getOpenIpos.HandleAsync(users[0]);
+        var allIpos = await getOpenIpos.HandleAsync(accountStore.Decrypt(accounts[0]).Credentials);
         var eligibleIpos = allIpos.Where(IsEligibleIpo.Check).ToList();
 
         if (eligibleIpos.Count == 0)
@@ -38,7 +34,6 @@ public sealed class ApplyIpoEndpoint(
             return;
         }
 
-        // If arg provided, filter to matching IPOs
         IReadOnlyList<IpoData> ipos = eligibleIpos;
         if (!string.IsNullOrEmpty(arg))
         {
@@ -52,8 +47,8 @@ public sealed class ApplyIpoEndpoint(
             }
         }
 
-        store.Set(chatId, new PendingApply(ApplyStep.Accounts, users, ipos));
-        await sender.SendKeyboardAsync(chatId, SelectAccountsText, AccountButtons(users));
+        store.Set(chatId, new PendingApply(ApplyStep.Accounts, accounts, ipos));
+        await sender.SendKeyboardAsync(chatId, SelectAccountsText, AccountButtons(accounts));
     }
 
     public async Task HandleCallbackAsync(CallbackQuery cb)
@@ -71,7 +66,6 @@ public sealed class ApplyIpoEndpoint(
             return;
         }
 
-        // Tapped an apply button from /ipo list or scheduler notification
         if (data.StartsWith("apply_sched_"))
         {
             await HandleApplyFromSchedAsync(chatId, data["apply_sched_".Length..]);
@@ -81,36 +75,33 @@ public sealed class ApplyIpoEndpoint(
         var pending = store.Get(chatId);
         if (pending is null) return;
 
-        // Step 1: account selection
         if (pending.Step == ApplyStep.Accounts)
         {
-            IReadOnlyList<MeroShareUser>? selectedUsers = null;
+            IReadOnlyList<LinkedAccount>? selectedAccounts = null;
             if (data == "apply_acct_all")
             {
-                selectedUsers = pending.Users;
+                selectedAccounts = pending.Accounts;
             }
             else if (data.StartsWith("apply_acct_"))
             {
                 if (!int.TryParse(data["apply_acct_".Length..], out var index)) return;
-                if (index < 0 || index >= pending.Users.Count) return;
-                selectedUsers = [pending.Users[index]];
+                if (index < 0 || index >= pending.Accounts.Count) return;
+                selectedAccounts = [pending.Accounts[index]];
             }
-            if (selectedUsers is null) return;
+            if (selectedAccounts is null) return;
 
-            // Single eligible IPO — skip step 2, execute directly
             if (pending.Ipos.Count == 1)
             {
                 store.Remove(chatId);
-                await ExecuteApplyAsync(chatId, pending.Ipos, selectedUsers);
+                await ExecuteApplyAsync(chatId, pending.Ipos, selectedAccounts);
                 return;
             }
 
-            // Multiple IPOs — show IPO selection keyboard
-            store.Set(chatId, pending with { Step = ApplyStep.Ipos, SelectedUsers = selectedUsers });
+            store.Set(chatId, pending with { Step = ApplyStep.Ipos, SelectedAccounts = selectedAccounts });
 
-            var accountLabel = selectedUsers.Count == pending.Users.Count
-                ? $"all {selectedUsers.Count} accounts"
-                : string.Join(", ", selectedUsers.Select(u => u.Username));
+            var accountLabel = selectedAccounts.Count == pending.Accounts.Count
+                ? $"all {selectedAccounts.Count} accounts"
+                : string.Join(", ", selectedAccounts.Select(a => a.Username));
             await sender.SendTextAsync(chatId, $"👥 Accounts: {accountLabel}");
 
             var buttons = pending.Ipos
@@ -124,8 +115,7 @@ public sealed class ApplyIpoEndpoint(
             return;
         }
 
-        // Step 2: IPO selection
-        if (pending.Step == ApplyStep.Ipos && pending.SelectedUsers is { } selected)
+        if (pending.Step == ApplyStep.Ipos && pending.SelectedAccounts is { } selected)
         {
             IReadOnlyList<IpoData>? selectedIpos = null;
             if (data == "apply_ipo_all")
@@ -147,15 +137,15 @@ public sealed class ApplyIpoEndpoint(
 
     private async Task HandleApplyFromSchedAsync(long chatId, string symbol)
     {
-        var users = opts.Value.Users;
-        if (users.Count == 0)
+        var accounts = accountStore.GetAccounts(chatId);
+        if (accounts.Count == 0)
         {
-            await sender.SendTextAsync(chatId, "No MeroShare accounts configured.");
+            await sender.SendTextAsync(chatId, "No accounts linked. Use /login to link one.");
             return;
         }
 
         await sender.SendTextAsync(chatId, "🔍 Fetching open IPOs...");
-        var allIpos = await getOpenIpos.HandleAsync(users[0]);
+        var allIpos = await getOpenIpos.HandleAsync(accountStore.Decrypt(accounts[0]).Credentials);
         var ipos = allIpos.Where(IsEligibleIpo.Check).Where(ipo => ipo.Symbol == symbol).ToList();
 
         if (ipos.Count == 0)
@@ -164,11 +154,11 @@ public sealed class ApplyIpoEndpoint(
             return;
         }
 
-        store.Set(chatId, new PendingApply(ApplyStep.Accounts, users, ipos));
-        await sender.SendKeyboardAsync(chatId, SelectAccountsText, AccountButtons(users));
+        store.Set(chatId, new PendingApply(ApplyStep.Accounts, accounts, ipos));
+        await sender.SendKeyboardAsync(chatId, SelectAccountsText, AccountButtons(accounts));
     }
 
-    private async Task ExecuteApplyAsync(long chatId, IReadOnlyList<IpoData> ipos, IReadOnlyList<MeroShareUser> users)
+    private async Task ExecuteApplyAsync(long chatId, IReadOnlyList<IpoData> ipos, IReadOnlyList<LinkedAccount> accounts)
     {
         var kitta = opts.Value.DefaultApplyKitta;
         Func<string, Task> notify = text => sender.SendTextAsync(chatId, text);
@@ -178,11 +168,29 @@ public sealed class ApplyIpoEndpoint(
             if (ipos.Count > 1)
                 await sender.SendTextAsync(chatId, $"\n📋 Applying for {ipo.Name}...");
 
-            var results = await applyIpo.ApplyAllAccountsAsync(ipo.Name, kitta, users, notify);
+            var results = new List<AccountApplyResult>();
+            foreach (var account in accounts)
+            {
+                if (account.AppliedShareIds.Contains(ipo.CompanyShareId))
+                {
+                    results.Add(new AccountApplyResult(account.Username, true, Message: "Already applied — skipped"));
+                    continue;
+                }
+
+                await notify($"⚙️ Applying with account {account.Username}...");
+                var decrypted = accountStore.Decrypt(account);
+                var result = await applyIpo.ApplyAsync(decrypted.Credentials, decrypted.ApplyCredentials, ipo, kitta);
+                if (result.Success) accountStore.MarkApplied(chatId, account.Id, ipo.CompanyShareId);
+
+                results.Add(new AccountApplyResult(account.Username, result.Success, result.Message, result.Error));
+                await notify(result.Success
+                    ? $"✅ Applied successfully with {account.Username}"
+                    : $"❌ Failed for {account.Username}: {result.Error}");
+            }
 
             var allOk = results.All(r => r.Success);
             var summary = string.Join('\n', results.Select(r =>
-                r.Success ? $"✅ {r.Username}: Applied" : $"❌ {r.Username}: {r.Error}"));
+                r.Success ? $"✅ {r.Username}: {r.Message ?? "Applied"}" : $"❌ {r.Username}: {r.Error}"));
             var header = allOk
                 ? $"🎉 All applications submitted for \"{ipo.Name}\"!"
                 : $"📊 Results for \"{ipo.Name}\":";
@@ -190,9 +198,9 @@ public sealed class ApplyIpoEndpoint(
         }
     }
 
-    private static IEnumerable<InlineKeyboardButton[]> AccountButtons(IReadOnlyList<MeroShareUser> users) =>
-        users
-            .Select((u, i) => new[] { InlineKeyboardButton.WithCallbackData($"👤 {u.Username}", $"apply_acct_{i}") })
-            .Append([InlineKeyboardButton.WithCallbackData($"✅ All accounts ({users.Count})", "apply_acct_all")])
+    private static IEnumerable<InlineKeyboardButton[]> AccountButtons(IReadOnlyList<LinkedAccount> accounts) =>
+        accounts
+            .Select((a, i) => new[] { InlineKeyboardButton.WithCallbackData($"👤 {a.Username}", $"apply_acct_{i}") })
+            .Append([InlineKeyboardButton.WithCallbackData($"✅ All accounts ({accounts.Count})", "apply_acct_all")])
             .Append([InlineKeyboardButton.WithCallbackData("❌ Cancel", "apply_no")]);
 }

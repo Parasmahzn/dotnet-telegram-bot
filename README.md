@@ -1,30 +1,33 @@
 # MeroShareBot (.NET 10)
 
-.NET 10 port of the Node.js MeroShare Telegram bot — Vertical Slice Architecture, Telegram.Bot 22.x, Microsoft.Playwright, Cronos scheduler, Serilog.
+.NET 10 MeroShare Telegram bot — Vertical Slice Architecture, Telegram.Bot 22.x, Cronos scheduler, Serilog.
 
 ## Run
 
 ```powershell
 dotnet build
-# one-time: install the Playwright Chromium browser
-powershell -ExecutionPolicy Bypass -File .\bin\Debug\net10.0\playwright.ps1 install chromium
 dotnet run
 ```
 
-Development (`dotnet run`) uses `appsettings.Development.json` (gitignored — holds real credentials), listens on http://localhost:4040, and runs Playwright headed with SlowMo 300ms, leaving the browser open after each automation. Production runs headless and closes the browser.
+Development (`dotnet run`) uses `appsettings.Development.json` (gitignored — holds real credentials), listens on http://localhost:4040, and logs MeroShare API request/response bodies at `Debug` level via `MeroShareLoggingHandler`. Production listens on :8080 and only logs at `Information`.
 
 ## Configuration
 
 | Key | Purpose |
 |---|---|
 | `Telegram:BotToken` | Bot token from BotFather |
-| `Telegram:WebhookUrl` | Optional — when set, registered with Telegram at startup; leave empty if the webhook is registered externally |
-| `Telegram:AllowedChatIds` | Chat IDs allowed to use protected commands (`/profile`, `/apply`) and inline buttons |
-| `MeroShare:Users` | Array of `{ Username, Password, Dp, Crn, Pin }` |
+| `Telegram:ApiUrl` | Telegram Bot API base (default `https://api.telegram.org/bot`) — override for a self-hosted Bot API server/proxy |
+| `MeroShare:BaseUrl` | MeroShare backend API base (default `https://webbackend.cdsc.com.np/api`) |
 | `MeroShare:DefaultApplyKitta` | Units applied per IPO (default 10) |
+| `Security:DataEncryptionKey` | AES-256-GCM key encrypting every linked account's credentials at rest |
 | `Scheduler:IpoCron` | Daily IPO check, UTC (default `20 4 * * *` = 10:05 AM NPT) |
 
-Production overrides via environment variables use `__` as the separator, e.g. `MeroShare__Users__0__Username=89303`.
+The bot is open to any chat — no whitelist. Admin status lives on `UserRecord.IsAdmin` in
+`data/users.json` (gates only `/users`), bootstrapped by hand-editing that file once after the
+admin's chat has messaged the bot (see `CLAUDE.md`). Webhook registration is fully external/manual
+now — set it up directly with Telegram, the app no longer registers one at startup.
+
+Production overrides via environment variables use `__` as the separator, e.g. `MeroShare__BaseUrl=...`.
 
 ## Endpoints
 
@@ -33,4 +36,4 @@ Production overrides via environment variables use `__` as the separator, e.g. `
 
 ## Bot commands
 
-`/start`, `/help`, `/ipo` (public) · `/profile [n|username]`, `/apply [name]` (allowed chats only)
+All commands are open to any chat. `/users` is admin-only (see Configuration above).

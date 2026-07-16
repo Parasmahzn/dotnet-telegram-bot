@@ -1,17 +1,3 @@
-using MeroShareBot.Features.Help;
-using MeroShareBot.Features.Ipo.ApplyIpo;
-using MeroShareBot.Features.Ipo.GetOpenIpos;
-using MeroShareBot.Features.Profile;
-using MeroShareBot.Features.Scheduler;
-using MeroShareBot.Shared.Browser;
-using MeroShareBot.Shared.Config;
-using MeroShareBot.Shared.MeroShare;
-using MeroShareBot.Shared.Telegram;
-using Microsoft.Extensions.Options;
-using Serilog;
-using Telegram.Bot;
-using Telegram.Bot.Types;
-
 var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configuration));
@@ -20,12 +6,26 @@ builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configurati
 builder.Services.AddOptions<TelegramOptions>()
     .BindConfiguration("Telegram")
     .ValidateDataAnnotations()
-    .Validate(o => o.WebhookUrl.Length == 0 || Uri.IsWellFormedUriString(o.WebhookUrl, UriKind.Absolute),
-        "Telegram:WebhookUrl must be a valid absolute URL when set")
     .ValidateOnStart();
 builder.Services.AddOptions<MeroShareOptions>()
     .BindConfiguration("MeroShare")
     .ValidateDataAnnotations()
+    .ValidateOnStart();
+builder.Services.AddOptions<SecurityOptions>()
+    .BindConfiguration("Security")
+    .ValidateDataAnnotations()
+    .Validate(o =>
+    {
+        try
+        {
+            var crypto = new CryptoService(Options.Create(o));
+            return crypto.Decrypt(crypto.Encrypt("startup-check")) == "startup-check";
+        }
+        catch
+        {
+            return false;
+        }
+    }, "Security:DataEncryptionKey is not usable for AES-256-GCM")
     .ValidateOnStart();
 builder.Services.AddOptions<SchedulerOptions>()
     .BindConfiguration("Scheduler")
@@ -44,35 +44,70 @@ builder.Services.AddOptions<SchedulerOptions>()
     .ValidateOnStart();
 
 builder.Services.AddSingleton<ITelegramBotClient>(sp =>
-    new TelegramBotClient(sp.GetRequiredService<IOptions<TelegramOptions>>().Value.BotToken));
+{
+    var opts = sp.GetRequiredService<IOptions<TelegramOptions>>().Value;
+    return new TelegramBotClient(new TelegramBotClientOptions(opts.BotToken, opts.ApiUrl));
+});
 
 // Deserialize Telegram Update payloads with Bot API JSON rules (snake_case, unix dates)
 builder.Services.ConfigureTelegramBot<Microsoft.AspNetCore.Http.Json.JsonOptions>(opt => opt.SerializerOptions);
 
+builder.Services.AddTransient<MeroShareLoggingHandler>();
+builder.Services.AddHttpClient<MeroShareApiClient>((sp, http) =>
+{
+    http.BaseAddress = new Uri(sp.GetRequiredService<IOptions<MeroShareOptions>>().Value.BaseUrl + "/");
+    http.Timeout = TimeSpan.FromSeconds(30);
+    http.DefaultRequestHeaders.Accept.Add(new("application/json"));
+}).AddHttpMessageHandler<MeroShareLoggingHandler>();
+builder.Services.AddHttpClient<IMeroShareDpCatalog, MeroShareDpCatalog>((sp, http) =>
+{
+    http.BaseAddress = new Uri(sp.GetRequiredService<IOptions<MeroShareOptions>>().Value.BaseUrl + "/");
+    http.Timeout = TimeSpan.FromSeconds(30);
+    http.DefaultRequestHeaders.Accept.Add(new("application/json"));
+}).AddHttpMessageHandler<MeroShareLoggingHandler>();
+
 // Shared infrastructure (singleton — stateless or thread-safe)
-builder.Services.AddSingleton<BrowserFactory>();
 builder.Services.AddSingleton<PendingApplyStore>();
 builder.Services.AddSingleton<BotUpdateHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton<CryptoService>();
+builder.Services.AddSingleton<AccountStore>();
+builder.Services.AddSingleton<AccountResolver>();
+builder.Services.AddSingleton<WatchlistStore>();
+builder.Services.AddSingleton<UserStore>();
+builder.Services.AddSingleton<LoginWizardState>();
+builder.Services.AddSingleton<SettingsKittaPromptState>();
 
 // Shared per-request (scoped)
-builder.Services.AddScoped<LoginService>();
 builder.Services.AddScoped<TelegramSender>();
 builder.Services.AddScoped<FeatureDispatcher>();
 
 // Feature endpoints — one registration per slice
 builder.Services.AddScoped<HelpEndpoint>();
+builder.Services.AddScoped<LoginEndpoint>();
+builder.Services.AddScoped<AccountsListEndpoint>();
+builder.Services.AddScoped<SwitchAccountEndpoint>();
+builder.Services.AddScoped<RemoveAccountEndpoint>();
 builder.Services.AddScoped<GetOpenIposEndpoint>();
 builder.Services.AddScoped<GetOpenIposHandler>();
 builder.Services.AddScoped<ApplyIpoEndpoint>();
 builder.Services.AddScoped<ApplyIpoHandler>();
 builder.Services.AddScoped<GetProfileEndpoint>();
 builder.Services.AddScoped<GetProfileHandler>();
+builder.Services.AddScoped<GetPortfolioEndpoint>();
+builder.Services.AddScoped<GetPortfolioHandler>();
+builder.Services.AddScoped<MarketEndpoint>();
+builder.Services.AddScoped<WatchlistEndpoint>();
+builder.Services.AddScoped<NotifyEndpoint>();
+builder.Services.AddScoped<AutoApplyEndpoint>();
+builder.Services.AddScoped<AutoApplyCallbackEndpoint>();
+builder.Services.AddScoped<AutoApplyScheduler>();
+builder.Services.AddScoped<SettingsEndpoint>();
+builder.Services.AddScoped<UsersListEndpoint>();
 
-// Scheduler + optional webhook registration
+// Scheduler
 builder.Services.AddScoped<IpoCheckerJob>();
 builder.Services.AddHostedService<IpoCheckerService>();
-builder.Services.AddHostedService<WebhookRegistrationService>();
 
 var app = builder.Build();
 
@@ -85,7 +120,7 @@ app.MapGet("/healthz", () => Results.Ok(new
     uptimeSeconds = Environment.TickCount64 / 1000.0,
 }));
 
-// Respond 200 immediately; process the update fire-and-forget (mirrors the Node webhook)
+// Respond 200 immediately; process the update fire-and-forget (Telegram's 5-second webhook timeout)
 app.MapPost("/telegram/webhook", (Update update, BotUpdateHandler handler) =>
 {
     handler.Dispatch(update);

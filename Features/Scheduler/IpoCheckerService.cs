@@ -1,25 +1,16 @@
 using Cronos;
-using MeroShareBot.Shared.Config;
-using Microsoft.Extensions.Options;
 
 namespace MeroShareBot.Features.Scheduler;
 
-// Port of startIpoScheduler from src/scheduler/ipoChecker.js — Cronos replaces node-cron.
+// Parses Scheduler:IpoCron with Cronos and sleeps until the next occurrence.
 public sealed class IpoCheckerService(
     IServiceScopeFactory scopeFactory,
     IOptions<SchedulerOptions> schedulerOpts,
-    IOptions<MeroShareOptions> meroShareOpts,
     TimeProvider timeProvider,
     ILogger<IpoCheckerService> logger) : BackgroundService
 {
     protected override async Task ExecuteAsync(CancellationToken ct)
     {
-        if (meroShareOpts.Value.Users.Count == 0)
-        {
-            logger.LogWarning("IPO scheduler: no users configured, skipping.");
-            return;
-        }
-
         var cronText = schedulerOpts.Value.IpoCron;
         var cron = CronExpression.Parse(cronText);
         logger.LogInformation("IPO scheduler started (cron: \"{Cron}\").", cronText);

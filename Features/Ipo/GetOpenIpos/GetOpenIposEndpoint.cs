@@ -1,28 +1,26 @@
-using MeroShareBot.Shared.Config;
-using MeroShareBot.Shared.Telegram;
-using Microsoft.Extensions.Options;
-using Telegram.Bot.Types;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace MeroShareBot.Features.Ipo.GetOpenIpos;
 
 public sealed class GetOpenIposEndpoint(
     GetOpenIposHandler handler,
-    TelegramSender sender,
-    IOptions<MeroShareOptions> opts)
+    AccountStore store,
+    AccountResolver resolver,
+    TelegramSender sender)
 {
-    public async Task HandleAsync(Message msg)
+    public async Task HandleAsync(Message msg, string arg)
     {
         var chatId = msg.Chat.Id;
-        var user = opts.Value.Users.FirstOrDefault();
-        if (user is null)
+        // The issue list is account-agnostic — any linked account supplies a valid session.
+        var account = resolver.Resolve(chatId, arg) ?? store.GetAccounts(chatId).FirstOrDefault();
+        if (account is null)
         {
-            await sender.SendTextAsync(chatId, "No MeroShare accounts configured.");
+            await sender.SendTextAsync(chatId, "No accounts linked. Use /login to link one (any account can be used to browse IPOs).");
             return;
         }
 
         await sender.SendTextAsync(chatId, "🔍 Checking open IPOs...");
-        var ipos = await handler.HandleAsync(user);
+        var ipos = await handler.HandleAsync(store.Decrypt(account).Credentials);
 
         if (ipos.Count == 0)
         {
