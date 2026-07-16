@@ -2,6 +2,15 @@ var builder = WebApplication.CreateBuilder(args);
 
 builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configuration));
 
+var connectionString = builder.Configuration.GetConnectionString("Default");
+if (string.IsNullOrWhiteSpace(connectionString))
+    throw new InvalidOperationException("ConnectionStrings:Default is required (set via appsettings or the ConnectionStrings__Default env var).");
+
+// Fixed ServerVersion, not AutoDetect — AutoDetect connects immediately during DI configuration,
+// before the startup retry loop below gets a chance to run if MySQL isn't up yet.
+builder.Services.AddDbContextFactory<BotDbContext>(o =>
+    o.UseMySql(connectionString, new MySqlServerVersion(new Version(8, 0, 36))));
+
 // Config — validated at startup, not at first use
 builder.Services.AddOptions<TelegramOptions>()
     .BindConfiguration("Telegram")
@@ -77,6 +86,7 @@ builder.Services.AddSingleton<WatchlistStore>();
 builder.Services.AddSingleton<UserStore>();
 builder.Services.AddSingleton<LoginWizardState>();
 builder.Services.AddSingleton<SettingsKittaPromptState>();
+builder.Services.AddSingleton<BroadcastState>();
 
 // Shared per-request (scoped)
 builder.Services.AddScoped<TelegramSender>();
@@ -104,6 +114,7 @@ builder.Services.AddScoped<AutoApplyCallbackEndpoint>();
 builder.Services.AddScoped<AutoApplyScheduler>();
 builder.Services.AddScoped<SettingsEndpoint>();
 builder.Services.AddScoped<UsersListEndpoint>();
+builder.Services.AddScoped<BroadcastEndpoint>();
 
 // Scheduler
 builder.Services.AddScoped<IpoCheckerJob>();
@@ -111,11 +122,34 @@ builder.Services.AddHostedService<IpoCheckerService>();
 
 var app = builder.Build();
 
+// Safety net for container/orchestrator startup races where the app starts slightly before
+// MySQL accepts connections — retries instead of crashing the whole process on first failure.
+{
+    var dbFactory = app.Services.GetRequiredService<IDbContextFactory<BotDbContext>>();
+    var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+    const int maxAttempts = 10;
+    for (var attempt = 1; ; attempt++)
+    {
+        try
+        {
+            using var db = dbFactory.CreateDbContext();
+            db.Database.Migrate();
+            break;
+        }
+        catch (Exception ex) when (attempt < maxAttempts)
+        {
+            startupLogger.LogWarning(ex, "Database migration attempt {Attempt}/{MaxAttempts} failed, retrying...", attempt, maxAttempts);
+            Thread.Sleep(TimeSpan.FromSeconds(3));
+        }
+    }
+}
+
 app.UseSerilogRequestLogging();
 
-app.MapGet("/healthz", () => Results.Ok(new
+app.MapGet("/", () => Results.Ok(new
 {
     status = "ok",
+    service = "MeroShareBot",
     timestamp = DateTimeOffset.UtcNow,
     uptimeSeconds = Environment.TickCount64 / 1000.0,
 }));

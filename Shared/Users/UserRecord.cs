@@ -6,4 +6,6 @@ public sealed record UserRecord(
     string LastName,
     string Username,
     DateTimeOffset RegisteredAt,
-    bool IsAdmin = false);
+    bool IsAdmin = false,
+    bool IsApplyAllowed = false,
+    bool IsBlocked = false);

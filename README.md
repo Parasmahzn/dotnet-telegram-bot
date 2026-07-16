@@ -32,8 +32,8 @@ Production overrides via environment variables use `__` as the separator, e.g. `
 ## Endpoints
 
 - `POST /telegram/webhook` — Telegram updates (responds 200 immediately, processes asynchronously)
-- `GET /healthz` — health check
+- `GET /` — health check
 
 ## Bot commands
 
-All commands are open to any chat. `/users` is admin-only (see Configuration above).
+All commands are open to any chat. `/users` and `/broadcast` are admin-only (see Configuration above).

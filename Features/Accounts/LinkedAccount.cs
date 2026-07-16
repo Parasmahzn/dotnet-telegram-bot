@@ -14,9 +14,3 @@ public sealed record LinkedAccount(
     HashSet<int> AutoApplyPromptedShareIds,
     HashSet<int> AppliedShareIds,
     DateTimeOffset LinkedAt);
-
-public sealed record ChatAccounts(
-    long ChatId,
-    List<LinkedAccount> Accounts,
-    Guid? DefaultAccountId,
-    bool NotifyEnabled);

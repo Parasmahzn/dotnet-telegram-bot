@@ -1,55 +1,19 @@
-using System.Collections.Concurrent;
-using System.Text.Json;
+using Microsoft.EntityFrameworkCore;
+using MeroShareBot.Shared.Data;
+using MeroShareBot.Shared.Data.Entities;
+using MySqlConnector;
 
 namespace MeroShareBot.Features.Accounts;
 
-// Singleton, JSON-file-backed (data/accounts.json) — same Load/Save/lock pattern as PendingApplyStore,
-// keyed by chat with a list of linked accounts instead of one account per chat.
-public sealed class AccountStore
+// Singleton — backed by MySQL via a short-lived BotDbContext per call (IDbContextFactory), so the
+// registration stays a singleton without sharing a DbContext instance across concurrent chats.
+public sealed class AccountStore(IDbContextFactory<BotDbContext> factory, CryptoService crypto)
 {
-    private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
-
-    private readonly string _path;
-    private readonly CryptoService _crypto;
-    private readonly ILogger<AccountStore> _logger;
-    private readonly ConcurrentDictionary<long, ChatAccounts> _byChat = new();
-    private readonly object _saveLock = new();
-
-    public AccountStore(IHostEnvironment env, CryptoService crypto, ILogger<AccountStore> logger)
+    public IReadOnlyList<LinkedAccount> GetAccounts(long chatId)
     {
-        _crypto = crypto;
-        _logger = logger;
-        _path = Path.Combine(env.ContentRootPath, "data", "accounts.json");
-        Load();
+        using var db = factory.CreateDbContext();
+        return [.. db.LinkedAccounts.Where(a => a.ChatId == chatId).OrderBy(a => a.LinkedAt).AsEnumerable().Select(ToRecord)];
     }
-
-    private void Load()
-    {
-        Directory.CreateDirectory(Path.GetDirectoryName(_path)!);
-        if (!File.Exists(_path)) return;
-
-        try
-        {
-            var loaded = JsonSerializer.Deserialize<Dictionary<long, ChatAccounts>>(File.ReadAllText(_path));
-            if (loaded is null) return;
-            foreach (var (chatId, accounts) in loaded) _byChat[chatId] = accounts;
-        }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Failed to load {Path}", _path);
-        }
-    }
-
-    private void Save()
-    {
-        lock (_saveLock)
-        {
-            File.WriteAllText(_path, JsonSerializer.Serialize(_byChat.ToDictionary(kv => kv.Key, kv => kv.Value), Json));
-        }
-    }
-
-    public IReadOnlyList<LinkedAccount> GetAccounts(long chatId) =>
-        _byChat.TryGetValue(chatId, out var c) ? c.Accounts : [];
 
     public LinkedAccount? GetAccount(long chatId, int index1Based)
     {
@@ -57,51 +21,76 @@ public sealed class AccountStore
         return index1Based >= 1 && index1Based <= accounts.Count ? accounts[index1Based - 1] : null;
     }
 
-    public LinkedAccount? GetAccountById(long chatId, Guid accountId) =>
-        GetAccounts(chatId).FirstOrDefault(a => a.Id == accountId);
+    public LinkedAccount? GetAccountById(long chatId, Guid accountId)
+    {
+        using var db = factory.CreateDbContext();
+        var entity = db.LinkedAccounts.FirstOrDefault(a => a.ChatId == chatId && a.Id == accountId);
+        return entity is null ? null : ToRecord(entity);
+    }
 
     // System-wide: the same MeroShare account can't be linked under more than one chat.
-    public bool IsUsernameLinked(string username, string dp) =>
-        _byChat.Values.Any(c => c.Accounts.Any(a =>
-            string.Equals(a.Username, username, StringComparison.OrdinalIgnoreCase) &&
-            string.Equals(a.Dp, dp, StringComparison.OrdinalIgnoreCase)));
+    public bool IsUsernameLinked(string username, string dp)
+    {
+        using var db = factory.CreateDbContext();
+        return db.LinkedAccounts.Any(a => a.Username == username && a.Dp == dp);
+    }
 
     public int? AddAccount(long chatId, string username, string dp, string password, string? crn, string? pin)
     {
-        lock (_saveLock)
+        using var db = factory.CreateDbContext();
+
+        var entity = new LinkedAccountEntity
         {
-            if (IsUsernameLinked(username, dp)) return null;
+            Id = Guid.NewGuid(),
+            ChatId = chatId,
+            Username = username,
+            Dp = dp,
+            EncryptedPassword = crypto.Encrypt(password),
+            EncryptedCrn = string.IsNullOrEmpty(crn) ? null : crypto.Encrypt(crn),
+            EncryptedPin = string.IsNullOrEmpty(pin) ? null : crypto.Encrypt(pin),
+            AutoApplyEnabled = false,
+            AutoApplyKitta = null,
+            AutoApplyPromptedShareIds = [],
+            AppliedShareIds = [],
+            LinkedAt = DateTimeOffset.UtcNow,
+        };
+        db.LinkedAccounts.Add(entity);
 
-            var account = new LinkedAccount(
-                Guid.NewGuid(), username, dp,
-                _crypto.Encrypt(password),
-                string.IsNullOrEmpty(crn) ? null : _crypto.Encrypt(crn),
-                string.IsNullOrEmpty(pin) ? null : _crypto.Encrypt(pin),
-                AutoApplyEnabled: false, AutoApplyKitta: null,
-                AutoApplyPromptedShareIds: [], AppliedShareIds: [],
-                DateTimeOffset.UtcNow);
-
-            var chat = _byChat.GetOrAdd(chatId, id => new ChatAccounts(id, [], null, NotifyEnabled: false));
-            chat.Accounts.Add(account);
-            if (chat.DefaultAccountId is null) chat = chat with { DefaultAccountId = account.Id };
-            _byChat[chatId] = chat;
-            Save();
-            return chat.Accounts.Count;
+        try
+        {
+            db.SaveChanges();
         }
+        catch (DbUpdateException ex) when (ex.InnerException is MySqlException { ErrorCode: MySqlErrorCode.DuplicateKeyEntry })
+        {
+            return null;
+        }
+
+        var settings = db.ChatSettings.Find(chatId);
+        if (settings is null)
+        {
+            db.ChatSettings.Add(new ChatSettingsEntity { ChatId = chatId, DefaultAccountId = entity.Id, NotifyEnabled = false });
+            db.SaveChanges();
+        }
+
+        return db.LinkedAccounts.Count(a => a.ChatId == chatId);
     }
 
     public bool RemoveAccount(long chatId, int index1Based)
     {
-        if (!_byChat.TryGetValue(chatId, out var chat)) return false;
-        if (index1Based < 1 || index1Based > chat.Accounts.Count) return false;
+        using var db = factory.CreateDbContext();
+        var accounts = db.LinkedAccounts.Where(a => a.ChatId == chatId).OrderBy(a => a.LinkedAt).ToList();
+        if (index1Based < 1 || index1Based > accounts.Count) return false;
 
-        var removed = chat.Accounts[index1Based - 1];
-        chat.Accounts.RemoveAt(index1Based - 1);
-        var newDefault = chat.DefaultAccountId == removed.Id
-            ? chat.Accounts.FirstOrDefault()?.Id
-            : chat.DefaultAccountId;
-        _byChat[chatId] = chat with { DefaultAccountId = newDefault };
-        Save();
+        var removed = accounts[index1Based - 1];
+        db.LinkedAccounts.Remove(removed);
+
+        var settings = db.ChatSettings.Find(chatId);
+        if (settings is not null && settings.DefaultAccountId == removed.Id)
+        {
+            settings.DefaultAccountId = accounts.Where(a => a.Id != removed.Id).Select(a => (Guid?)a.Id).FirstOrDefault();
+        }
+
+        db.SaveChanges();
         return true;
     }
 
@@ -109,8 +98,18 @@ public sealed class AccountStore
     {
         var account = GetAccount(chatId, index1Based);
         if (account is null) return false;
-        _byChat[chatId] = _byChat[chatId] with { DefaultAccountId = account.Id };
-        Save();
+
+        using var db = factory.CreateDbContext();
+        var settings = db.ChatSettings.Find(chatId);
+        if (settings is null)
+        {
+            db.ChatSettings.Add(new ChatSettingsEntity { ChatId = chatId, DefaultAccountId = account.Id, NotifyEnabled = false });
+        }
+        else
+        {
+            settings.DefaultAccountId = account.Id;
+        }
+        db.SaveChanges();
         return true;
     }
 
@@ -120,68 +119,93 @@ public sealed class AccountStore
         var accounts = GetAccounts(chatId);
         if (accounts.Count == 0) return null;
         if (accounts.Count == 1) return accounts[0];
-        return _byChat.TryGetValue(chatId, out var chat) && chat.DefaultAccountId is { } id
-            ? accounts.FirstOrDefault(a => a.Id == id)
-            : null;
+
+        using var db = factory.CreateDbContext();
+        var defaultId = db.ChatSettings.Find(chatId)?.DefaultAccountId;
+        return defaultId is { } id ? accounts.FirstOrDefault(a => a.Id == id) : null;
     }
 
     public bool SetAutoApply(long chatId, int index1Based, bool enabled, int? kitta) =>
-        MutateAccount(chatId, index1Based, a => a with { AutoApplyEnabled = enabled, AutoApplyKitta = kitta ?? a.AutoApplyKitta });
+        MutateAccount(chatId, index1Based, a =>
+        {
+            a.AutoApplyEnabled = enabled;
+            a.AutoApplyKitta = kitta ?? a.AutoApplyKitta;
+        });
 
     public bool SetChatNotify(long chatId, bool enabled)
     {
-        var chat = _byChat.GetOrAdd(chatId, id => new ChatAccounts(id, [], null, false));
-        _byChat[chatId] = chat with { NotifyEnabled = enabled };
-        Save();
+        using var db = factory.CreateDbContext();
+        var settings = db.ChatSettings.Find(chatId);
+        if (settings is null)
+        {
+            db.ChatSettings.Add(new ChatSettingsEntity { ChatId = chatId, DefaultAccountId = null, NotifyEnabled = enabled });
+        }
+        else
+        {
+            settings.NotifyEnabled = enabled;
+        }
+        db.SaveChanges();
         return true;
     }
 
-    public bool GetChatNotify(long chatId) => _byChat.TryGetValue(chatId, out var chat) && chat.NotifyEnabled;
+    public bool GetChatNotify(long chatId)
+    {
+        using var db = factory.CreateDbContext();
+        return db.ChatSettings.Find(chatId)?.NotifyEnabled == true;
+    }
 
     public bool MarkAutoApplyPrompted(long chatId, Guid accountId, int companyShareId) =>
-        MutateAccountById(chatId, accountId, a => { a.AutoApplyPromptedShareIds.Add(companyShareId); return a; });
+        MutateAccountById(chatId, accountId, a => a.AutoApplyPromptedShareIds.Add(companyShareId));
 
     public bool MarkApplied(long chatId, Guid accountId, int companyShareId) =>
-        MutateAccountById(chatId, accountId, a => { a.AppliedShareIds.Add(companyShareId); return a; });
+        MutateAccountById(chatId, accountId, a => a.AppliedShareIds.Add(companyShareId));
 
-    public IReadOnlyList<long> GetNotifyEnabledChatIds() =>
-        [.. _byChat.Values.Where(c => c.NotifyEnabled).Select(c => c.ChatId)];
+    public IReadOnlyList<long> GetNotifyEnabledChatIds()
+    {
+        using var db = factory.CreateDbContext();
+        return [.. db.ChatSettings.Where(c => c.NotifyEnabled).Select(c => c.ChatId)];
+    }
 
-    public IReadOnlyList<(long ChatId, LinkedAccount Account)> GetAutoApplyEnabledAccounts() =>
-        [.. _byChat.Values.SelectMany(c => c.Accounts.Where(a => a.AutoApplyEnabled).Select(a => (c.ChatId, a)))];
+    public IReadOnlyList<(long ChatId, LinkedAccount Account)> GetAutoApplyEnabledAccounts()
+    {
+        using var db = factory.CreateDbContext();
+        return [.. db.LinkedAccounts.Where(a => a.AutoApplyEnabled).AsEnumerable().Select(a => (a.ChatId, ToRecord(a)))];
+    }
 
     // Any one linked account anywhere, purely to get a session for the account-agnostic issue list.
     public (long ChatId, LinkedAccount Account)? GetAnyAccountForIssueListing()
     {
-        foreach (var chat in _byChat.Values)
-        {
-            var account = chat.Accounts.FirstOrDefault();
-            if (account is not null) return (chat.ChatId, account);
-        }
-        return null;
+        using var db = factory.CreateDbContext();
+        var entity = db.LinkedAccounts.FirstOrDefault();
+        return entity is null ? null : (entity.ChatId, ToRecord(entity));
     }
 
     public DecryptedAccount Decrypt(LinkedAccount a) => new(
-        new MeroShareCredentials(a.Username, _crypto.Decrypt(a.EncryptedPassword), a.Dp),
-        a.EncryptedCrn is null ? "" : _crypto.Decrypt(a.EncryptedCrn),
-        a.EncryptedPin is null ? "" : _crypto.Decrypt(a.EncryptedPin));
+        new MeroShareCredentials(a.Username, crypto.Decrypt(a.EncryptedPassword), a.Dp),
+        a.EncryptedCrn is null ? "" : crypto.Decrypt(a.EncryptedCrn),
+        a.EncryptedPin is null ? "" : crypto.Decrypt(a.EncryptedPin));
 
-    private bool MutateAccount(long chatId, int index1Based, Func<LinkedAccount, LinkedAccount> mutate)
+    private bool MutateAccount(long chatId, int index1Based, Action<LinkedAccountEntity> mutate)
     {
-        if (!_byChat.TryGetValue(chatId, out var chat)) return false;
-        if (index1Based < 1 || index1Based > chat.Accounts.Count) return false;
-        chat.Accounts[index1Based - 1] = mutate(chat.Accounts[index1Based - 1]);
-        Save();
+        using var db = factory.CreateDbContext();
+        var accounts = db.LinkedAccounts.Where(a => a.ChatId == chatId).OrderBy(a => a.LinkedAt).ToList();
+        if (index1Based < 1 || index1Based > accounts.Count) return false;
+        mutate(accounts[index1Based - 1]);
+        db.SaveChanges();
         return true;
     }
 
-    private bool MutateAccountById(long chatId, Guid id, Func<LinkedAccount, LinkedAccount> mutate)
+    private bool MutateAccountById(long chatId, Guid id, Action<LinkedAccountEntity> mutate)
     {
-        if (!_byChat.TryGetValue(chatId, out var chat)) return false;
-        var index = chat.Accounts.FindIndex(a => a.Id == id);
-        if (index < 0) return false;
-        chat.Accounts[index] = mutate(chat.Accounts[index]);
-        Save();
+        using var db = factory.CreateDbContext();
+        var account = db.LinkedAccounts.FirstOrDefault(a => a.ChatId == chatId && a.Id == id);
+        if (account is null) return false;
+        mutate(account);
+        db.SaveChanges();
         return true;
     }
+
+    private static LinkedAccount ToRecord(LinkedAccountEntity e) => new(
+        e.Id, e.Username, e.Dp, e.EncryptedPassword, e.EncryptedCrn, e.EncryptedPin,
+        e.AutoApplyEnabled, e.AutoApplyKitta, e.AutoApplyPromptedShareIds, e.AppliedShareIds, e.LinkedAt);
 }
