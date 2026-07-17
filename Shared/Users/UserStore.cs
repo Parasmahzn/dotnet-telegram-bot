@@ -1,5 +1,3 @@
-using Microsoft.EntityFrameworkCore;
-using MeroShareBot.Shared.Data;
 using MeroShareBot.Shared.Data.Entities;
 
 namespace MeroShareBot.Shared.Users;
@@ -56,4 +54,27 @@ public sealed class UserStore(IDbContextFactory<BotDbContext> factory)
     public bool IsBlocked(long chatId) => GetUser(chatId)?.IsBlocked == true;
 
     public bool IsApplyAllowed(long chatId) => GetUser(chatId)?.IsApplyAllowed == true;
+
+    public IReadOnlyList<UserRecord> GetAllUsers()
+    {
+        using var db = factory.CreateDbContext();
+        return [.. db.Users.Select(u =>
+            new UserRecord(u.ChatId, u.FirstName, u.LastName, u.Username, u.RegisteredAt, u.IsAdmin, u.IsApplyAllowed, u.IsBlocked))];
+    }
+
+    public bool SetAdmin(long chatId, bool value) => SetFlag(chatId, e => e.IsAdmin = value);
+
+    public bool SetApplyAllowed(long chatId, bool value) => SetFlag(chatId, e => e.IsApplyAllowed = value);
+
+    public bool SetBlocked(long chatId, bool value) => SetFlag(chatId, e => e.IsBlocked = value);
+
+    private bool SetFlag(long chatId, Action<UserEntity> apply)
+    {
+        using var db = factory.CreateDbContext();
+        var entity = db.Users.Find(chatId);
+        if (entity is null) return false;
+        apply(entity);
+        db.SaveChanges();
+        return true;
+    }
 }

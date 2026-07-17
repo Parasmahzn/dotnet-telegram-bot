@@ -56,6 +56,8 @@ public sealed class FeatureDispatcher(
                 await sp.GetRequiredService<SettingsEndpoint>().HandleCallbackAsync(cb);
             else if (data.StartsWith("broadcast_"))
                 await sp.GetRequiredService<BroadcastEndpoint>().HandleCallbackAsync(cb);
+            else if (data.StartsWith("manageuser_"))
+                await sp.GetRequiredService<ManageUserEndpoint>().HandleCallbackAsync(cb, cbChatId is not null && userStore.IsAdmin(cbChatId.Value));
             else if (data.StartsWith("start_") && cb.Message is { } startMsg)
             {
                 await sender.AnswerCallbackAsync(cb.Id);
@@ -112,6 +114,13 @@ public sealed class FeatureDispatcher(
             if (broadcastState.Get(chatId) is { Step: BroadcastStep.AwaitingMessage })
             {
                 await sp.GetRequiredService<BroadcastEndpoint>().HandleMessageReplyAsync(msg);
+                return;
+            }
+
+            var portfolioViewState = sp.GetRequiredService<PortfolioViewState>();
+            if (portfolioViewState.IsAwaitingSearch(chatId))
+            {
+                await sp.GetRequiredService<GetPortfolioEndpoint>().HandleSearchReplyAsync(msg);
                 return;
             }
 
@@ -174,6 +183,9 @@ public sealed class FeatureDispatcher(
                 break;
             case "users":
                 await sp.GetRequiredService<UsersListEndpoint>().HandleAsync(msg, userStore.IsAdmin(chatId));
+                break;
+            case "manageuser":
+                await sp.GetRequiredService<ManageUserEndpoint>().HandleAsync(msg, userStore.IsAdmin(chatId));
                 break;
             case "broadcast":
                 await sp.GetRequiredService<BroadcastEndpoint>().HandleAsync(msg, userStore.IsAdmin(chatId));

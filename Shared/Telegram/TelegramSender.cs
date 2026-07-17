@@ -38,6 +38,19 @@ public sealed class TelegramSender(ITelegramBotClient bot, ILogger<TelegramSende
             cancellationToken: ct);
     }
 
+    public Task SendDocumentAsync(
+        long chatId,
+        Stream content,
+        string fileName,
+        string? caption = null,
+        CancellationToken ct = default)
+    {
+        logger.LogInformation("[SendDocument] chatId={ChatId}: \"{FileName}\"", chatId, fileName);
+        return bot.SendDocument(chatId, InputFile.FromStream(content, fileName),
+            caption: caption,
+            cancellationToken: ct);
+    }
+
     public Task EditTextAsync(long chatId, int messageId, string text, CancellationToken ct = default)
     {
         logger.LogInformation("[EditText] chatId={ChatId} messageId={MessageId}: \"{Text}\"", chatId, messageId, Truncate(text));
@@ -57,8 +70,8 @@ public sealed class TelegramSender(ITelegramBotClient bot, ILogger<TelegramSende
             cancellationToken: ct);
     }
 
-    public Task AnswerCallbackAsync(string callbackQueryId, CancellationToken ct = default) =>
-        bot.AnswerCallbackQuery(callbackQueryId, cancellationToken: ct);
+    public Task AnswerCallbackAsync(string callbackQueryId, string? text = null, bool showAlert = false, CancellationToken ct = default) =>
+        bot.AnswerCallbackQuery(callbackQueryId, text: text, showAlert: showAlert, cancellationToken: ct);
 
     private static string Truncate(string s) => s.Length > 200 ? s[..200] : s;
 }

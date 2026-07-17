@@ -50,7 +50,7 @@ public sealed record PortfolioRequest(
 public sealed record PortfolioItem(
     [property: JsonPropertyName("script")] string Script,
     [property: JsonPropertyName("scriptDesc")] string? ScriptDesc,
-    [property: JsonPropertyName("currentBalance")] int CurrentBalance,
+    [property: JsonPropertyName("currentBalance")] decimal CurrentBalance,
     [property: JsonPropertyName("lastTransactionPrice")] string? LastTransactionPrice,
     [property: JsonPropertyName("previousClosingPrice")] string? PreviousClosingPrice,
     [property: JsonPropertyName("valueOfLastTransPrice")] decimal ValueOfLastTransPrice,

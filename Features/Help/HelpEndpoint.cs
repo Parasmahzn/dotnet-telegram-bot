@@ -14,6 +14,7 @@ public sealed class HelpEndpoint(TelegramSender sender, IWebHostEnvironment env,
         "❓ /help               — Show this message\n" +
         "📋 /ipo [n]            — List open IPOs (default account)\n" +
         "🔗 /login              — Link a MeroShare account\n" +
+        "🛠️ /manageuser         — Toggle admin/apply/block flags for a chat (admin only)\n" +
         "📈 /market [sym]       — NEPSE index / quote (coming soon)\n" +
         "🔔 /notify             — IPO availability notifications\n" +
         "📊 /portfolio [n]      — View share holdings\n" +

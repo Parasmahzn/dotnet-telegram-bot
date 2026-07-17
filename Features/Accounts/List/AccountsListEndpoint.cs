@@ -13,12 +13,12 @@ public sealed class AccountsListEndpoint(AccountStore store, TelegramSender send
         }
 
         var defaultAccount = store.GetDefault(chatId);
-        var lines = new List<string> { $"👤 Linked accounts ({accounts.Count}):", "" };
+        var lines = new List<string> { $"👤 Linked accounts ({accounts.Count}):" };
         for (var i = 0; i < accounts.Count; i++)
         {
             var a = accounts[i];
             var isDefault = defaultAccount?.Id == a.Id;
-            lines.Add($"{i + 1}. 🏷️ {a.DisplayLabel}{(isDefault ? "  ⭐ default" : "")}");
+            lines.Add($"\n{i + 1}. 🏷️ {a.DisplayLabel}{(isDefault ? "  ⭐ default" : "")}");
             lines.Add($"   👤 {a.Username} · DP {a.Dp}");
             lines.Add($"   🤖 Autoapply: {(a.AutoApplyEnabled ? $"ON ({a.AutoApplyKitta ?? 0} kitta)" : "off")}");
         }
