@@ -7,28 +7,14 @@ public sealed class GetOpenIposHandler(MeroShareApiClient client, ILogger<GetOpe
         var send = notify ?? (_ => Task.CompletedTask);
         try
         {
-            await send($"🔐 Signing in as {creds.Username}...");
-            var session = await client.LoginAsync(creds);
-
             await send("🔍 Checking open IPOs...");
-            var response = await client.GetApplicableIssuesAsync(session);
-            try { await client.LogoutAsync(session); } catch { /* best-effort */ }
+            var response = await client.GetApplicableIssuesAsync(creds);
 
             return [.. response.Object.Select(ToIpoData)];
         }
-        catch (MeroShareLoginException ex)
-        {
-            await send($"❌ {ex.Message}");
-            return [];
-        }
-        catch (MeroShareApiException ex)
-        {
-            await send($"❌ {ex.ApiMessage ?? "Login failed — check credentials."}");
-            return [];
-        }
         catch (Exception ex)
         {
-            logger.LogError(ex, "getOpenIPOs failed");
+            await send($"❌ {ex.Resolve(logger, "getOpenIPOs", "Login failed — check credentials.")}");
             return [];
         }
     }

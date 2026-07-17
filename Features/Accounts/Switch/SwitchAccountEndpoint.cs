@@ -18,6 +18,6 @@ public sealed class SwitchAccountEndpoint(AccountStore store, TelegramSender sen
             return;
         }
 
-        await sender.SendTextAsync(chatId, $"✅ Default account set to #{index} ({account.Username} · {account.Dp}).");
+        await sender.SendTextAsync(chatId, $"✅ Default account set to #{index} ({account.DisplayLabel}).");
     }
 }

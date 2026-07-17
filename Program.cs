@@ -1,6 +1,17 @@
+using Serilog.Events;
+
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Host.UseSerilog((ctx, cfg) => cfg.ReadFrom.Configuration(ctx.Configuration));
+builder.Host.UseSerilog((ctx, cfg) => cfg
+    .ReadFrom.Configuration(ctx.Configuration)
+    .WriteTo.Logger(lc => lc
+        .Filter.ByIncludingOnly(IsMeroShareApiLog)
+        .WriteTo.File("logs/log-.txt", rollingInterval: RollingInterval.Day)));
+
+static bool IsMeroShareApiLog(LogEvent e) =>
+    e.Properties.TryGetValue("SourceContext", out var sc) &&
+    sc is ScalarValue { Value: string s } &&
+    s == "MeroShareBot.Shared.MeroShare.MeroShareLoggingHandler";
 
 var connectionString = builder.Configuration.GetConnectionString("Default");
 if (string.IsNullOrWhiteSpace(connectionString))
@@ -61,6 +72,7 @@ builder.Services.AddSingleton<ITelegramBotClient>(sp =>
 // Deserialize Telegram Update payloads with Bot API JSON rules (snake_case, unix dates)
 builder.Services.ConfigureTelegramBot<Microsoft.AspNetCore.Http.Json.JsonOptions>(opt => opt.SerializerOptions);
 
+builder.Services.AddMemoryCache();
 builder.Services.AddTransient<MeroShareLoggingHandler>();
 builder.Services.AddHttpClient<MeroShareApiClient>((sp, http) =>
 {
@@ -74,6 +86,14 @@ builder.Services.AddHttpClient<IMeroShareDpCatalog, MeroShareDpCatalog>((sp, htt
     http.Timeout = TimeSpan.FromSeconds(30);
     http.DefaultRequestHeaders.Accept.Add(new("application/json"));
 }).AddHttpMessageHandler<MeroShareLoggingHandler>();
+// Named (not typed) client — MeroShareSessionCache must be a true singleton for its per-account
+// lock dictionary to work, and AddHttpClient<T> defaults typed clients to transient.
+builder.Services.AddHttpClient(MeroShareSessionCache.HttpClientName, (sp, http) =>
+{
+    http.BaseAddress = new Uri(sp.GetRequiredService<IOptions<MeroShareOptions>>().Value.BaseUrl + "/");
+    http.Timeout = TimeSpan.FromSeconds(30);
+    http.DefaultRequestHeaders.Accept.Add(new("application/json"));
+}).AddHttpMessageHandler<MeroShareLoggingHandler>();
 
 // Shared infrastructure (singleton — stateless or thread-safe)
 builder.Services.AddSingleton<PendingApplyStore>();
@@ -81,6 +101,8 @@ builder.Services.AddSingleton<BotUpdateHandler>();
 builder.Services.AddSingleton(TimeProvider.System);
 builder.Services.AddSingleton<CryptoService>();
 builder.Services.AddSingleton<AccountStore>();
+builder.Services.AddSingleton<IMeroShareSessionStore>(sp => sp.GetRequiredService<AccountStore>());
+builder.Services.AddSingleton<IMeroShareSessionCache, MeroShareSessionCache>();
 builder.Services.AddSingleton<AccountResolver>();
 builder.Services.AddSingleton<WatchlistStore>();
 builder.Services.AddSingleton<UserStore>();

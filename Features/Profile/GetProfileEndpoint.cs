@@ -28,7 +28,7 @@ public sealed class GetProfileEndpoint(
 
         var buttons = accounts.Select((a, i) => new[]
         {
-            InlineKeyboardButton.WithCallbackData($"👤 {a.Username}", $"profile_acct_{i + 1}"),
+            InlineKeyboardButton.WithCallbackData($"👤 {a.DisplayLabel} ({a.Username})", $"profile_acct_{i + 1}"),
         });
         await sender.SendKeyboardAsync(chatId, "Pick an account — which profile do you want to check?", buttons);
     }
@@ -54,17 +54,15 @@ public sealed class GetProfileEndpoint(
 
         if (!result.Success || result.Personal is null)
         {
-            await sender.SendTextAsync(chatId, result.Error ?? $"Could not fetch profile for {account.Username}.");
+            await sender.SendTextAsync(chatId, result.Error ?? $"Could not fetch profile for {account.DisplayLabel}.");
             return;
         }
 
         var personal = result.Personal;
         var lines = new List<string>
         {
-            $"👤 {personal.Name}",
-            $"🆔 {personal.Username ?? account.Username}",
-            "",
             "━━ Personal Information ━━",
+            $"👤 Name:    {personal.Name}",
             $"📋 BOID:    {personal.Boid}",
             $"🚻 Gender:  {personal.Gender}",
             $"📧 Email:   {personal.Email}",

@@ -101,7 +101,7 @@ public sealed class ApplyIpoEndpoint(
 
             var accountLabel = selectedAccounts.Count == pending.Accounts.Count
                 ? $"all {selectedAccounts.Count} accounts"
-                : string.Join(", ", selectedAccounts.Select(a => a.Username));
+                : string.Join(", ", selectedAccounts.Select(a => a.DisplayLabel));
             await sender.SendTextAsync(chatId, $"👥 Accounts: {accountLabel}");
 
             var buttons = pending.Ipos
@@ -173,19 +173,19 @@ public sealed class ApplyIpoEndpoint(
             {
                 if (account.AppliedShareIds.Contains(ipo.CompanyShareId))
                 {
-                    results.Add(new AccountApplyResult(account.Username, true, Message: "Already applied — skipped"));
+                    results.Add(new AccountApplyResult(account.DisplayLabel, true, Message: "Already applied — skipped"));
                     continue;
                 }
 
-                await notify($"⚙️ Applying with account {account.Username}...");
+                await notify($"⚙️ Applying with account {account.DisplayLabel}...");
                 var decrypted = accountStore.Decrypt(account);
                 var result = await applyIpo.ApplyAsync(decrypted.Credentials, decrypted.ApplyCredentials, ipo, kitta);
                 if (result.Success) accountStore.MarkApplied(chatId, account.Id, ipo.CompanyShareId);
 
-                results.Add(new AccountApplyResult(account.Username, result.Success, result.Message, result.Error));
+                results.Add(new AccountApplyResult(account.DisplayLabel, result.Success, result.Message, result.Error));
                 await notify(result.Success
-                    ? $"✅ Applied successfully with {account.Username}"
-                    : $"❌ Failed for {account.Username}: {result.Error}");
+                    ? $"✅ Applied successfully with {account.DisplayLabel}"
+                    : $"❌ Failed for {account.DisplayLabel}: {result.Error}");
             }
 
             var allOk = results.All(r => r.Success);
@@ -200,7 +200,7 @@ public sealed class ApplyIpoEndpoint(
 
     private static IEnumerable<InlineKeyboardButton[]> AccountButtons(IReadOnlyList<LinkedAccount> accounts) =>
         accounts
-            .Select((a, i) => new[] { InlineKeyboardButton.WithCallbackData($"👤 {a.Username}", $"apply_acct_{i}") })
+            .Select((a, i) => new[] { InlineKeyboardButton.WithCallbackData($"👤 {a.DisplayLabel} ({a.Username})", $"apply_acct_{i}") })
             .Append([InlineKeyboardButton.WithCallbackData($"✅ All accounts ({accounts.Count})", "apply_acct_all")])
             .Append([InlineKeyboardButton.WithCallbackData("❌ Cancel", "apply_no")]);
 }

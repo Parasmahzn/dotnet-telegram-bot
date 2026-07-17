@@ -24,6 +24,7 @@ public sealed class BotDbContext(DbContextOptions<BotDbContext> options) : DbCon
             e.HasKey(a => a.Id);
             e.HasIndex(a => a.ChatId);
             e.HasIndex(a => new { a.Username, a.Dp }).IsUnique();
+            e.Property(a => a.Label).HasDefaultValue("");
 
             e.Property(a => a.AutoApplyPromptedShareIds)
                 .HasConversion(

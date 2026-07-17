@@ -45,7 +45,7 @@ public sealed class AutoApplyEndpoint(AccountStore store, TelegramSender sender)
         if (rest.Length == 0)
         {
             await sender.SendTextAsync(chatId,
-                $"🤖 Autoapply for #{index} ({account.Username}): {(account.AutoApplyEnabled ? $"ON ({account.AutoApplyKitta} kitta)" : "off")}\n\n" +
+                $"🤖 Autoapply for #{index} ({account.DisplayLabel}): {(account.AutoApplyEnabled ? $"ON ({account.AutoApplyKitta} kitta)" : "off")}\n\n" +
                 "Usage: /autoapply <n> on <kitta> · /autoapply <n> off\n" +
                 "You'll always get a confirm button before anything is actually submitted.");
             return;
@@ -54,7 +54,7 @@ public sealed class AutoApplyEndpoint(AccountStore store, TelegramSender sender)
         if (rest[0].Equals("off", StringComparison.OrdinalIgnoreCase))
         {
             store.SetAutoApply(chatId, index, enabled: false, kitta: null);
-            await sender.SendTextAsync(chatId, $"🤖 Autoapply disabled for #{index} ({account.Username}).");
+            await sender.SendTextAsync(chatId, $"🤖 Autoapply disabled for #{index} ({account.DisplayLabel}).");
             return;
         }
 
@@ -68,7 +68,7 @@ public sealed class AutoApplyEndpoint(AccountStore store, TelegramSender sender)
 
             store.SetAutoApply(chatId, index, enabled: true, kitta: kitta);
             await sender.SendTextAsync(chatId,
-                $"🤖 Autoapply enabled for #{index} ({account.Username}), {kitta} kitta.\n" +
+                $"🤖 Autoapply enabled for #{index} ({account.DisplayLabel}), {kitta} kitta.\n" +
                 "You'll get a confirm button whenever a new eligible IPO opens — nothing is submitted until you tap it.");
             return;
         }

@@ -11,6 +11,8 @@ dotnet run
 
 Development (`dotnet run`) uses `appsettings.Development.json` (gitignored — holds real credentials and the MySQL connection string), listens on http://localhost:4040, and logs MeroShare API request/response bodies at `Debug` level via `MeroShareLoggingHandler`. Production listens on :8080 and only logs at `Information`.
 
+Logging is split across two sinks: the console (captured by whatever hosts the process — journalctl/docker/etc.) gets everything — app logs, EF Core commands, webhook requests, and the MeroShare traffic below — while `logs/log-{Date}.txt` is filtered to contain *only* the MeroShare API request/response lines, nothing else.
+
 Persistence is MySQL via EF Core (`Pomelo.EntityFrameworkCore.MySql`) — pending migrations are applied automatically at startup (`Database.Migrate()`, with a retry loop in case the database isn't reachable the instant the app starts). No separate migration step is needed to run the app; you only need `dotnet-ef` installed if you're adding a new migration yourself (`dotnet tool install --global dotnet-ef`, then `dotnet ef migrations add <Name>`).
 
 ## Configuration

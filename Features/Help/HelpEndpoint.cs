@@ -7,22 +7,22 @@ public sealed class HelpEndpoint(TelegramSender sender, IWebHostEnvironment env,
     private const string HelpText =
         "🤖 MeroShare Bot — Available commands:\n" +
         "\n" +
-        "🔗 /login              — Link a MeroShare account\n" +
         "📇 /accounts           — List linked accounts\n" +
-        "🔀 /switch <n>         — Set default account\n" +
-        "🗑️ /removeaccount <n>  — Remove linked account\n" +
-        "👤 /profile [n]        — View MeroShare profile\n" +
-        "📊 /portfolio [n]      — View share holdings\n" +
-        "📈 /market [sym]       — NEPSE index / quote (coming soon)\n" +
-        "👀 /watch              — Symbol watchlist\n" +
-        "📋 /ipo [n]            — List open IPOs (default account)\n" +
         "🚀 /apply <name>       — Apply for an IPO\n" +
         "🤖 /autoapply          — Auto-apply settings (always confirm-tap)\n" +
-        "🔔 /notify             — IPO availability notifications\n" +
-        "⚙️ /settings           — Settings hub\n" +
-        "👥 /users              — List registered chats (admin only)\n" +
         "📢 /broadcast          — Send a message to all chats (admin only)\n" +
-        "❓ /help               — Show this message";
+        "❓ /help               — Show this message\n" +
+        "📋 /ipo [n]            — List open IPOs (default account)\n" +
+        "🔗 /login              — Link a MeroShare account\n" +
+        "📈 /market [sym]       — NEPSE index / quote (coming soon)\n" +
+        "🔔 /notify             — IPO availability notifications\n" +
+        "📊 /portfolio [n]      — View share holdings\n" +
+        "👤 /profile [n]        — View MeroShare profile\n" +
+        "🗑️ /removeaccount      — Remove linked account (pick from a list)\n" +
+        "⚙️ /settings           — Settings hub\n" +
+        "🔀 /switch <n>         — Set default account\n" +
+        "👥 /users              — List registered chats (admin only)\n" +
+        "👀 /watch              — Symbol watchlist";
 
     private const string WelcomeText =
         "👋 Welcome to MeroShare Bot!\n\n" +

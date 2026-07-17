@@ -6,6 +6,7 @@ public sealed record LinkedAccount(
     Guid Id,
     string Username,
     string Dp,
+    string Label,
     string EncryptedPassword,
     string? EncryptedCrn,
     string? EncryptedPin,
@@ -13,4 +14,9 @@ public sealed record LinkedAccount(
     int? AutoApplyKitta,
     HashSet<int> AutoApplyPromptedShareIds,
     HashSet<int> AppliedShareIds,
-    DateTimeOffset LinkedAt);
+    DateTimeOffset LinkedAt)
+{
+    // Existing pre-label accounts have Label == "" — fall back to Username rather than retroactively
+    // assigning "Account N" numbers to old rows.
+    public string DisplayLabel => string.IsNullOrEmpty(Label) ? Username : Label;
+}

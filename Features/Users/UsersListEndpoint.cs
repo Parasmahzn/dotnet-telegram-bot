@@ -23,8 +23,10 @@ public sealed class UsersListEndpoint(UserStore userStore, AccountStore accountS
         {
             var u = userStore.GetUser(id)!;
             var accountCount = accountStore.GetAccounts(id).Count;
+            var name = string.IsNullOrWhiteSpace(u.LastName) ? u.FirstName : $"{u.FirstName} {u.LastName}";
+            var handle = string.IsNullOrEmpty(u.Username) ? "" : $" (@{u.Username})";
             var admin = u.IsAdmin ? " · admin" : "";
-            return $"{u.ChatId} — {u.FirstName} {u.LastName} (@{u.Username}) — {accountCount} linked account(s), since {u.RegisteredAt:yyyy-MM-dd}{admin}";
+            return $"{u.ChatId} — {name}{handle} — {accountCount} linked account(s), since {u.RegisteredAt:yyyy-MM-dd}{admin}";
         });
 
         await sender.SendTextAsync(chatId, "👥 Registered chats:\n\n" + string.Join('\n', lines));

@@ -91,7 +91,7 @@ public sealed class SettingsEndpoint(AccountStore store, SettingsKittaPromptStat
             var a = accounts[i];
             var n = i + 1;
             var isDefault = defaultAccount?.Id == a.Id;
-            lines.Add($"\n{n}. {a.Username}{(isDefault ? " ⭐" : "")} — autoapply {(a.AutoApplyEnabled ? $"ON ({a.AutoApplyKitta})" : "off")}");
+            lines.Add($"\n{n}. {a.DisplayLabel} ({a.Username}){(isDefault ? " ⭐" : "")} — autoapply {(a.AutoApplyEnabled ? $"ON ({a.AutoApplyKitta})" : "off")}");
             buttons.Add([
                 InlineKeyboardButton.WithCallbackData(isDefault ? "⭐ Default" : "Set default", $"settings_default_{n}"),
                 InlineKeyboardButton.WithCallbackData(a.AutoApplyEnabled ? "Autoapply off" : "Autoapply on", $"settings_autoapply_toggle_{n}"),

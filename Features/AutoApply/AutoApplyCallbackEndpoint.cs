@@ -49,22 +49,14 @@ public sealed class AutoApplyCallbackEndpoint(
         }
 
         var decrypted = store.Decrypt(account);
-        await sender.SendTextAsync(chatId, $"⚙️ Applying with {account.Username}...");
+        await sender.SendTextAsync(chatId, $"⚙️ Applying with {account.DisplayLabel}...");
 
         IpoData ipo;
         try
         {
-            var session = await client.LoginAsync(decrypted.Credentials);
-            try
-            {
-                var detail = await client.GetIssueDetailAsync(session, companyShareId);
-                ipo = new IpoData(detail.CompanyShareId, detail.CompanyName, detail.Scrip, "",
-                    detail.ShareTypeName ?? "", detail.ShareGroupName ?? "");
-            }
-            finally
-            {
-                try { await client.LogoutAsync(session); } catch { /* best-effort */ }
-            }
+            var detail = await client.GetIssueDetailAsync(decrypted.Credentials, companyShareId);
+            ipo = new IpoData(detail.CompanyShareId, detail.CompanyName, detail.Scrip, "",
+                detail.ShareTypeName ?? "", detail.ShareGroupName ?? "");
         }
         catch (Exception ex)
         {
@@ -77,7 +69,7 @@ public sealed class AutoApplyCallbackEndpoint(
         if (result.Success) store.MarkApplied(chatId, account.Id, companyShareId);
 
         await sender.SendTextAsync(chatId, result.Success
-            ? $"✅ Applied for {ipo.Name} ({kitta} kitta) with {account.Username}."
+            ? $"✅ Applied for {ipo.Name} ({kitta} kitta) with {account.DisplayLabel}."
             : $"❌ Failed: {result.Error}");
     }
 }

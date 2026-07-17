@@ -18,12 +18,13 @@ public sealed class AccountsListEndpoint(AccountStore store, TelegramSender send
         {
             var a = accounts[i];
             var isDefault = defaultAccount?.Id == a.Id;
-            lines.Add($"{i + 1}. {a.Username} · DP {a.Dp}{(isDefault ? "  ⭐ default" : "")}");
+            lines.Add($"{i + 1}. 🏷️ {a.DisplayLabel}{(isDefault ? "  ⭐ default" : "")}");
+            lines.Add($"   👤 {a.Username} · DP {a.Dp}");
             lines.Add($"   🤖 Autoapply: {(a.AutoApplyEnabled ? $"ON ({a.AutoApplyKitta ?? 0} kitta)" : "off")}");
         }
         lines.Add("");
         lines.Add($"🔔 Notifications for this chat: {(store.GetChatNotify(chatId) ? "ON" : "off")} (see /notify)");
-        lines.Add("Use /switch <n> to set default · /removeaccount <n> to unlink.");
+        lines.Add("Use /switch <n> to set default · /removeaccount to unlink.");
         await sender.SendTextAsync(chatId, string.Join('\n', lines));
     }
 }

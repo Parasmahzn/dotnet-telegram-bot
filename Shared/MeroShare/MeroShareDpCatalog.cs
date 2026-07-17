@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Microsoft.Extensions.Caching.Memory;
 
 namespace MeroShareBot.Shared.MeroShare;
 
@@ -9,18 +10,15 @@ public interface IMeroShareDpCatalog
     Task<int> ResolveClientIdAsync(string dp, CancellationToken ct = default);
 }
 
-// DPs are effectively static reference data — cached with a long TTL so every login doesn't pay
-// for an extra round trip. Match by Code first, then Name, to handle both the numeric-code and
-// full-bank-name Dp values already present in existing config/linked accounts.
-public sealed class MeroShareDpCatalog(HttpClient http, TimeProvider timeProvider, ILogger<MeroShareDpCatalog> logger)
+// DPs are effectively static reference data — cached for 30 days via IMemoryCache (a DI singleton)
+// so every login doesn't pay for an extra round trip. Match by Code first, then Name, to handle
+// both the numeric-code and full-bank-name Dp values already present in existing config/linked accounts.
+public sealed class MeroShareDpCatalog(HttpClient http, IMemoryCache cache, ILogger<MeroShareDpCatalog> logger)
     : IMeroShareDpCatalog
 {
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
-    private static readonly TimeSpan Ttl = TimeSpan.FromHours(12);
-
-    private readonly SemaphoreSlim _refreshLock = new(1, 1);
-    private IReadOnlyList<DepositoryParticipant>? _cache;
-    private DateTimeOffset _expiresAt = DateTimeOffset.MinValue;
+    private static readonly TimeSpan Ttl = TimeSpan.FromDays(30);
+    private const string CacheKey = "MeroShareDpCatalog:DpList";
 
     public async Task<int> ResolveClientIdAsync(string dp, CancellationToken ct = default)
     {
@@ -34,39 +32,25 @@ public sealed class MeroShareDpCatalog(HttpClient http, TimeProvider timeProvide
             ?? throw new MeroShareLoginException($"No matching Depository Participant found for \"{dp}\".");
     }
 
-    public async Task<IReadOnlyList<DepositoryParticipant>> GetDpListAsync(CancellationToken ct = default)
-    {
-        if (_cache is { } cached && timeProvider.GetUtcNow() < _expiresAt) return cached;
-
-        await _refreshLock.WaitAsync(ct);
-        try
+    public async Task<IReadOnlyList<DepositoryParticipant>> GetDpListAsync(CancellationToken ct = default) =>
+        (await cache.GetOrCreateAsync(CacheKey, async entry =>
         {
-            if (_cache is { } stillCached && timeProvider.GetUtcNow() < _expiresAt) return stillCached;
+            entry.AbsoluteExpirationRelativeToNow = Ttl;
 
             using var response = await http.GetAsync("meroShare/capital/", ct);
             var body = await response.Content.ReadAsStringAsync(ct);
             if (!response.IsSuccessStatusCode)
                 throw new MeroShareApiException((int)response.StatusCode, body);
 
-            List<DepositoryParticipant> list;
             try
             {
-                list = JsonSerializer.Deserialize<List<DepositoryParticipant>>(body, Json) ?? [];
+                return JsonSerializer.Deserialize<List<DepositoryParticipant>>(body, Json) ?? [];
             }
             catch (JsonException ex)
             {
                 logger.LogError(ex, "MeroShare DP list returned non-JSON body (status {Status}): {Body}",
                     (int)response.StatusCode, body.Length > 300 ? body[..300] + "…" : body);
-                throw new MeroShareApiException((int)response.StatusCode, body);
+                throw new MeroShareUnavailableException();
             }
-
-            _cache = list;
-            _expiresAt = timeProvider.GetUtcNow() + Ttl;
-            return list;
-        }
-        finally
-        {
-            _refreshLock.Release();
-        }
-    }
+        }))!;
 }

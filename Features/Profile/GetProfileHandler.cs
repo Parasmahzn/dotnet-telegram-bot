@@ -6,12 +6,8 @@ public sealed class GetProfileHandler(MeroShareApiClient client, ILogger<GetProf
     {
         try
         {
-            await notify($"🔐 Signing in as {creds.Username}...");
-            var session = await client.LoginAsync(creds);
-
             await notify($"📋 Retrieving account details for {creds.Username}...");
-            var detail = await client.GetOwnDetailAsync(session);
-            try { await client.LogoutAsync(session); } catch { /* best-effort */ }
+            var detail = await client.GetOwnDetailAsync(creds);
 
             return new ProfileResult(
                 true,
@@ -21,26 +17,18 @@ public sealed class GetProfileHandler(MeroShareApiClient client, ILogger<GetProf
                     Gender: detail.Gender ?? "",
                     Email: detail.Email ?? detail.MeroShareEmail ?? "",
                     Phone: detail.Contact ?? "",
-                    Address: detail.Address ?? "",
-                    Username: detail.Username),
+                    Address: detail.Address ?? ""),
                 Account:
                 [
                     new ProfileAccountEntry("Demat", detail.Demat),
                     new ProfileAccountEntry("Demat Expiry Date", detail.DematExpiryDate ?? ""),
+                    new ProfileAccountEntry("MeroShare Expiry Date", detail.ExpiredDateStr ?? ""),
+                    new ProfileAccountEntry("Password Expiry Date", detail.PasswordExpiryDateStr ?? ""),
                 ]);
-        }
-        catch (MeroShareApiException ex)
-        {
-            return new ProfileResult(false, Error: $"❌ {ex.ApiMessage ?? "Login failed — check credentials."}");
-        }
-        catch (MeroShareLoginException ex)
-        {
-            return new ProfileResult(false, Error: $"❌ {ex.Message}");
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Profile fetch failed");
-            return new ProfileResult(false, Error: ex.Message);
+            return new ProfileResult(false, Error: $"❌ {ex.Resolve(logger, "Profile fetch", "Login failed — check credentials.")}");
         }
     }
 }

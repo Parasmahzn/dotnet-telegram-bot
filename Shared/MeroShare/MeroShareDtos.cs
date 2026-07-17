@@ -17,7 +17,10 @@ public sealed record LoginRequest(
 
 public sealed record LoginResponseBody(
     [property: JsonPropertyName("statusCode")] int? StatusCode,
-    [property: JsonPropertyName("message")] string? Message);
+    [property: JsonPropertyName("message")] string? Message,
+    [property: JsonPropertyName("accountExpired")] bool? AccountExpired,
+    [property: JsonPropertyName("dematExpired")] bool? DematExpired,
+    [property: JsonPropertyName("passwordExpired")] bool? PasswordExpired);
 
 // ---- Own detail / profile ----
 public sealed record OwnDetail(
@@ -28,9 +31,11 @@ public sealed record OwnDetail(
     [property: JsonPropertyName("demat")] string Demat,
     [property: JsonPropertyName("dematExpiryDate")] string? DematExpiryDate,
     [property: JsonPropertyName("email")] string? Email,
+    [property: JsonPropertyName("expiredDateStr")] string? ExpiredDateStr,
     [property: JsonPropertyName("gender")] string? Gender,
     [property: JsonPropertyName("meroShareEmail")] string? MeroShareEmail,
     [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("passwordExpiryDateStr")] string? PasswordExpiryDateStr,
     [property: JsonPropertyName("username")] string? Username);
 
 // ---- Portfolio ----
@@ -45,14 +50,17 @@ public sealed record PortfolioRequest(
 public sealed record PortfolioItem(
     [property: JsonPropertyName("script")] string Script,
     [property: JsonPropertyName("scriptDesc")] string? ScriptDesc,
-    [property: JsonPropertyName("currentBalance")] string? CurrentBalance,
+    [property: JsonPropertyName("currentBalance")] int CurrentBalance,
     [property: JsonPropertyName("lastTransactionPrice")] string? LastTransactionPrice,
-    [property: JsonPropertyName("valueAsOfLastTransactionPrice")] string? ValueAsOfLastTransactionPrice);
+    [property: JsonPropertyName("previousClosingPrice")] string? PreviousClosingPrice,
+    [property: JsonPropertyName("valueOfLastTransPrice")] decimal ValueOfLastTransPrice,
+    [property: JsonPropertyName("valueOfPrevClosingPrice")] decimal ValueOfPrevClosingPrice);
 
 public sealed record PortfolioResponse(
     [property: JsonPropertyName("meroShareMyPortfolio")] List<PortfolioItem> Items,
     [property: JsonPropertyName("totalItems")] int TotalItems,
-    [property: JsonPropertyName("totalValueAsOfLastTransactionPrice")] string? TotalValueAsOfLastTransactionPrice);
+    [property: JsonPropertyName("totalValueOfLastTransPrice")] decimal TotalValueOfLastTransPrice,
+    [property: JsonPropertyName("totalValueOfPrevClosingPrice")] decimal TotalValueOfPrevClosingPrice);
 
 // ---- Generic "filtered search" request shape (reused by applicableIssue + applicantForm search) ----
 public sealed record FilterFieldParam(

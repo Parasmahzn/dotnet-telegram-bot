@@ -40,6 +40,8 @@ public sealed class FeatureDispatcher(
                 await sp.GetRequiredService<GetProfileEndpoint>().HandleCallbackAsync(cb);
             else if (data.StartsWith("portfolio_"))
                 await sp.GetRequiredService<GetPortfolioEndpoint>().HandleCallbackAsync(cb);
+            else if (data.StartsWith("removeaccount_"))
+                await sp.GetRequiredService<RemoveAccountEndpoint>().HandleCallbackAsync(cb);
             else if (data.StartsWith("autoapply_"))
             {
                 if (cbChatId is not null && !userStore.IsApplyAllowed(cbChatId.Value))

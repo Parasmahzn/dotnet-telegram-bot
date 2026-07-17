@@ -9,6 +9,7 @@ public sealed class LinkedAccountEntity
     public long ChatId { get; set; }
     public required string Username { get; set; }
     public required string Dp { get; set; }
+    public required string Label { get; set; }
     public required string EncryptedPassword { get; set; }
     public string? EncryptedCrn { get; set; }
     public string? EncryptedPin { get; set; }
@@ -17,4 +18,8 @@ public sealed class LinkedAccountEntity
     public HashSet<int> AutoApplyPromptedShareIds { get; set; } = [];
     public HashSet<int> AppliedShareIds { get; set; } = [];
     public DateTimeOffset LinkedAt { get; set; }
+
+    // Plaintext (unlike Password/Crn/Pin) per explicit decision — reused for Postman testing.
+    public string? SessionToken { get; set; }
+    public DateTimeOffset? SessionTokenExpiresAt { get; set; }
 }

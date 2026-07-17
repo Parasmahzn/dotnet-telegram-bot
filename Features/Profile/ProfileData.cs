@@ -6,8 +6,7 @@ public sealed record ProfilePersonal(
     string Gender,
     string Email,
     string Phone,
-    string Address,
-    string? Username);
+    string Address);
 
 public sealed record ProfileAccountEntry(string Label, string Value);
 

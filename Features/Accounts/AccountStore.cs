@@ -1,13 +1,17 @@
+using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
 using MeroShareBot.Shared.Data;
 using MeroShareBot.Shared.Data.Entities;
+using MeroShareBot.Shared.MeroShare;
 using MySqlConnector;
 
 namespace MeroShareBot.Features.Accounts;
 
 // Singleton — backed by MySQL via a short-lived BotDbContext per call (IDbContextFactory), so the
 // registration stays a singleton without sharing a DbContext instance across concurrent chats.
-public sealed class AccountStore(IDbContextFactory<BotDbContext> factory, CryptoService crypto)
+// Also implements IMeroShareSessionStore (Shared/MeroShare) so MeroShareSessionCache can persist
+// session tokens without Shared depending on account storage directly.
+public sealed class AccountStore(IDbContextFactory<BotDbContext> factory, CryptoService crypto) : IMeroShareSessionStore
 {
     public IReadOnlyList<LinkedAccount> GetAccounts(long chatId)
     {
@@ -35,9 +39,12 @@ public sealed class AccountStore(IDbContextFactory<BotDbContext> factory, Crypto
         return db.LinkedAccounts.Any(a => a.Username == username && a.Dp == dp);
     }
 
-    public int? AddAccount(long chatId, string username, string dp, string password, string? crn, string? pin)
+    public int? AddAccount(long chatId, string username, string dp, string password, string? crn, string? pin, string? label)
     {
         using var db = factory.CreateDbContext();
+
+        var nextNumber = db.LinkedAccounts.Count(a => a.ChatId == chatId) + 1;
+        var cleanedLabel = CleanLabel(label);
 
         var entity = new LinkedAccountEntity
         {
@@ -45,6 +52,7 @@ public sealed class AccountStore(IDbContextFactory<BotDbContext> factory, Crypto
             ChatId = chatId,
             Username = username,
             Dp = dp,
+            Label = cleanedLabel.Length == 0 ? $"Account {nextNumber}" : cleanedLabel,
             EncryptedPassword = crypto.Encrypt(password),
             EncryptedCrn = string.IsNullOrEmpty(crn) ? null : crypto.Encrypt(crn),
             EncryptedPin = string.IsNullOrEmpty(pin) ? null : crypto.Encrypt(pin),
@@ -206,6 +214,42 @@ public sealed class AccountStore(IDbContextFactory<BotDbContext> factory, Crypto
     }
 
     private static LinkedAccount ToRecord(LinkedAccountEntity e) => new(
-        e.Id, e.Username, e.Dp, e.EncryptedPassword, e.EncryptedCrn, e.EncryptedPin,
+        e.Id, e.Username, e.Dp, e.Label, e.EncryptedPassword, e.EncryptedCrn, e.EncryptedPin,
         e.AutoApplyEnabled, e.AutoApplyKitta, e.AutoApplyPromptedShareIds, e.AppliedShareIds, e.LinkedAt);
+
+    private static string CleanLabel(string? raw)
+    {
+        if (string.IsNullOrWhiteSpace(raw)) return "";
+        var collapsed = Regex.Replace(raw.Trim(), @"\s+", " ");
+        return collapsed.Length > 50 ? collapsed[..50] : collapsed;
+    }
+
+    public async Task<(string Token, DateTimeOffset? ExpiresAt)?> GetAsync(string username, string dp, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var entity = await db.LinkedAccounts.FirstOrDefaultAsync(a => a.Username == username && a.Dp == dp, ct);
+        return entity?.SessionToken is { } token ? (token, entity.SessionTokenExpiresAt) : null;
+    }
+
+    public async Task SaveAsync(string username, string dp, string token, DateTimeOffset? expiresAt, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var entity = await db.LinkedAccounts.FirstOrDefaultAsync(a => a.Username == username && a.Dp == dp, ct);
+        if (entity is null) return; // e.g. /login's pre-persistence validation login — nothing to update yet
+
+        entity.SessionToken = token;
+        entity.SessionTokenExpiresAt = expiresAt;
+        await db.SaveChangesAsync(ct);
+    }
+
+    public async Task ClearAsync(string username, string dp, CancellationToken ct = default)
+    {
+        await using var db = await factory.CreateDbContextAsync(ct);
+        var entity = await db.LinkedAccounts.FirstOrDefaultAsync(a => a.Username == username && a.Dp == dp, ct);
+        if (entity is null) return;
+
+        entity.SessionToken = null;
+        entity.SessionTokenExpiresAt = null;
+        await db.SaveChangesAsync(ct);
+    }
 }

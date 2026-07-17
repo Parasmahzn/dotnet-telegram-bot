@@ -27,7 +27,7 @@ public sealed class AutoApplyScheduler(AccountStore store, TelegramSender sender
                 var applyData = $"autoapply_go_{idHex}_{ipo.CompanyShareId}_{account.AutoApplyKitta}";
                 var skipData = $"autoapply_skip_{idHex}_{ipo.CompanyShareId}";
 
-                var text = $"🤖 Autoapply match!\n\n🏢 {ipo.Name} ({ipo.Symbol})\n👤 Account: {account.Username}\n📦 Kitta: {account.AutoApplyKitta}\n\nTap to submit — nothing is applied until you tap.";
+                var text = $"🤖 Autoapply match!\n\n🏢 {ipo.Name} ({ipo.Symbol})\n👤 Account: {account.DisplayLabel}\n📦 Kitta: {account.AutoApplyKitta}\n\nTap to submit — nothing is applied until you tap.";
                 await sender.SendKeyboardAsync(chatId, text,
                 [
                     [InlineKeyboardButton.WithCallbackData("✅ Apply now", applyData)],

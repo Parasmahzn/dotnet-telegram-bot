@@ -6,28 +6,16 @@ public sealed class GetPortfolioHandler(MeroShareApiClient client, ILogger<GetPo
     {
         try
         {
-            await notify($"🔐 Signing in as {creds.Username}...");
-            var session = await client.LoginAsync(creds);
-
-            var own = await client.GetOwnDetailAsync(session);
+            var own = await client.GetOwnDetailAsync(creds);
             await notify("📊 Fetching holdings...");
-            var portfolio = await client.GetPortfolioAsync(session, own.Demat, own.ClientCode);
-            try { await client.LogoutAsync(session); } catch { /* best-effort */ }
+            var portfolio = await client.GetPortfolioAsync(creds, own.Demat, own.ClientCode);
+            logger.LogDebug("Fetched portfolio for {Username}: {Count} holdings", creds.Username, portfolio.Items.Count);
 
             return new PortfolioResult(true, portfolio);
         }
-        catch (MeroShareApiException ex)
-        {
-            return new PortfolioResult(false, Error: $"❌ {ex.ApiMessage ?? "Login failed — check credentials."}");
-        }
-        catch (MeroShareLoginException ex)
-        {
-            return new PortfolioResult(false, Error: $"❌ {ex.Message}");
-        }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Portfolio fetch failed");
-            return new PortfolioResult(false, Error: ex.Message);
+            return new PortfolioResult(false, Error: $"❌ {ex.Resolve(logger, "Portfolio fetch", "Login failed — check credentials.")}");
         }
     }
 }

@@ -1,3 +1,5 @@
+using System.Globalization;
+using System.Text;
 using Telegram.Bot.Types.ReplyMarkups;
 
 namespace MeroShareBot.Features.Portfolio;
@@ -8,6 +10,8 @@ public sealed class GetPortfolioEndpoint(
     AccountResolver resolver,
     TelegramSender sender)
 {
+    private const int MaxMessageLength = 3500; // safety margin under Telegram's 4096 cap
+
     public async Task HandleMessageAsync(Message msg, string arg)
     {
         var chatId = msg.Chat.Id;
@@ -27,7 +31,7 @@ public sealed class GetPortfolioEndpoint(
 
         var buttons = accounts.Select((a, i) => new[]
         {
-            InlineKeyboardButton.WithCallbackData($"👤 {a.Username}", $"portfolio_acct_{i + 1}"),
+            InlineKeyboardButton.WithCallbackData($"👤 {a.DisplayLabel} ({a.Username})", $"portfolio_acct_{i + 1}"),
         });
         await sender.SendKeyboardAsync(chatId, "Pick an account — which portfolio do you want to check?", buttons);
     }
@@ -53,29 +57,66 @@ public sealed class GetPortfolioEndpoint(
 
         if (!result.Success || result.Portfolio is null)
         {
-            await sender.SendTextAsync(chatId, result.Error ?? $"Could not fetch portfolio for {account.Username}.");
+            await sender.SendTextAsync(chatId, result.Error ?? $"Could not fetch portfolio for {account.DisplayLabel}.");
             return;
         }
 
-        var items = result.Portfolio.Items;
-        if (items.Count == 0)
+        if (result.Portfolio.Items.Count == 0)
         {
-            await sender.SendTextAsync(chatId, $"📊 {account.Username} has no holdings.");
+            await sender.SendTextAsync(chatId, "📭 No portfolio holdings found.");
             return;
         }
 
-        var lines = new List<string> { $"📊 Portfolio — {account.Username} ({items.Count} holding{(items.Count > 1 ? "s" : "")})", "" };
-        foreach (var item in items)
-        {
-            lines.Add($"• {item.Script}{(string.IsNullOrEmpty(item.ScriptDesc) ? "" : $" — {item.ScriptDesc}")}");
-            lines.Add($"   Qty: {item.CurrentBalance ?? "-"}  ·  LTP: {item.LastTransactionPrice ?? "-"}  ·  Value: {item.ValueAsOfLastTransactionPrice ?? "-"}");
-        }
-        if (result.Portfolio.TotalValueAsOfLastTransactionPrice is { } total)
-        {
-            lines.Add("");
-            lines.Add($"💰 Total value (LTP): {total}");
-        }
-
-        await sender.SendTextAsync(chatId, string.Join('\n', lines));
+        foreach (var message in BuildMessages(account.DisplayLabel, result.Portfolio))
+            await sender.SendTextAsync(chatId, message);
     }
+
+    private static IEnumerable<string> BuildMessages(string label, PortfolioResponse portfolio)
+    {
+        var totals =
+            "📈 Totals\n\n" +
+            $"Last Closing Value:\nRs. {portfolio.TotalValueOfPrevClosingPrice.ToString("N2", CultureInfo.InvariantCulture)}\n\n" +
+            $"Last Transaction Value:\nRs. {portfolio.TotalValueOfLastTransPrice.ToString("N2", CultureInfo.InvariantCulture)}";
+
+        var current = new StringBuilder($"📊 Portfolio — {label}\n\n");
+        foreach (var item in portfolio.Items)
+        {
+            var block = FormatItem(item);
+            if (current.Length + block.Length > MaxMessageLength)
+            {
+                yield return current.ToString().TrimEnd();
+                current = new StringBuilder();
+            }
+            current.Append(block);
+        }
+
+        if (current.Length + totals.Length > MaxMessageLength)
+        {
+            yield return current.ToString().TrimEnd();
+            yield return totals;
+        }
+        else
+        {
+            current.Append(totals);
+            yield return current.ToString();
+        }
+    }
+
+    private static string FormatItem(PortfolioItem item)
+    {
+        var name = string.IsNullOrEmpty(item.ScriptDesc) ? item.Script : $"{item.ScriptDesc} ({item.Script})";
+        return
+            $"🔹 {name}\n" +
+            $"Balance: {item.CurrentBalance}\n" +
+            $"Last Close: Rs. {FormatPrice(item.PreviousClosingPrice)}\n" +
+            $"Value: Rs. {item.ValueOfPrevClosingPrice.ToString("N2", CultureInfo.InvariantCulture)}\n\n" +
+            $"Last Trade: Rs. {FormatPrice(item.LastTransactionPrice)}\n" +
+            $"Value: Rs. {item.ValueOfLastTransPrice.ToString("N2", CultureInfo.InvariantCulture)}\n\n" +
+            "────────────────\n\n";
+    }
+
+    private static string FormatPrice(string? raw) =>
+        decimal.TryParse(raw, NumberStyles.Number, CultureInfo.InvariantCulture, out var value)
+            ? value.ToString("N2", CultureInfo.InvariantCulture)
+            : raw ?? "-";
 }
