@@ -22,7 +22,7 @@ Docker: `docker build .` (no browser dependencies — the runtime image is a pla
 ## Environments
 
 - **Development** (`dotnet run`): listens on http://localhost:4040, uses `appsettings.Development.json` — **gitignored, holds real Telegram bot token and MySQL connection string; never commit it**. MeroShare API traffic is logged at `Debug` level in dev via `MeroShareLoggingHandler` (request/response bodies).
-- **Production**: listens on :8080. Config overrides via env vars with `__` separators (e.g. `MeroShare__BaseUrl=...`, `ConnectionStrings__Default=...`). Webhook registration is fully external/manual — the app no longer registers one at startup (`WebhookRegistrationService` was removed).
+- **Production**: no fixed port/URL baked into the image — `ASPNETCORE_URLS`/port binding comes from whatever the hosting environment sets, so the same image works on any host. Config overrides via env vars with `__` separators (e.g. `MeroShare__BaseUrl=...`, `ConnectionStrings__Default=...`).
 
 All options (`TelegramOptions`, `MeroShareOptions`, `SecurityOptions`, `SchedulerOptions` in `Shared/Config/`) are bound and validated with `ValidateOnStart()` in `Program.cs` — invalid config crashes at startup, so new config keys should get DataAnnotations there. `SecurityOptions.DataEncryptionKey` is required and round-trip-tested at startup (AES-256-GCM) since it encrypts every linked account's credentials at rest. `ConnectionStrings:Default` is checked the same fail-fast way (empty/missing throws before the host builds) but isn't wrapped in an `IOptions<T>` — it's read directly via `builder.Configuration.GetConnectionString("Default")` since that's the idiomatic ASP.NET Core convention for connection strings.
 

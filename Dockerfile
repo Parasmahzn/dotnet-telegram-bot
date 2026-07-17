@@ -10,7 +10,5 @@ WORKDIR /app
 COPY --from=build /app/publish .
 
 ENV ASPNETCORE_ENVIRONMENT=Production
-ENV ASPNETCORE_URLS=http://+:8080
 ENV ConnectionStrings__Default=""
-EXPOSE 8080
 ENTRYPOINT ["dotnet", "MeroShareBot.dll"]
