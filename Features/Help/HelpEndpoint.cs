@@ -1,6 +1,8 @@
+using Telegram.Bot.Types.ReplyMarkups;
+
 namespace MeroShareBot.Features.Help;
 
-public sealed class HelpEndpoint(TelegramSender sender)
+public sealed class HelpEndpoint(TelegramSender sender, IWebHostEnvironment env, ILogger<HelpEndpoint> logger)
 {
     private const string HelpText =
         "🤖 MeroShare Bot — Available commands:\n" +
@@ -22,12 +24,31 @@ public sealed class HelpEndpoint(TelegramSender sender)
         "📢 /broadcast          — Send a message to all chats (admin only)\n" +
         "❓ /help               — Show this message";
 
-    public Task HandleStartAsync(Message msg) =>
-        sender.SendTextAsync(msg.Chat.Id,
-            "👋 Welcome to MeroShare Bot!\n\n" +
-            "I automate MeroShare — Nepal's share application portal. Link your account, check open IPOs, and apply in a couple of taps.\n\n" +
-            "🔗 /login to link your MeroShare account\n" +
-            "❓ /help to see everything I can do");
+    private const string WelcomeText =
+        "👋 Welcome to MeroShare Bot!\n\n" +
+        "I automate MeroShare — Nepal's share application portal. Link your account, check open IPOs, and apply in a couple of taps.\n\n" +
+        "🔗 /login to link your MeroShare account\n" +
+        "❓ /help to see everything I can do";
+
+    public async Task HandleStartAsync(Message msg)
+    {
+        var chatId = msg.Chat.Id;
+        var buttons = new List<InlineKeyboardButton[]>();
+        buttons.Add([InlineKeyboardButton.WithCallbackData("🔗 Login", "start_login")]);
+        buttons.Add([InlineKeyboardButton.WithCallbackData("📊 Portfolio", "start_portfolio")]);
+        buttons.Add([InlineKeyboardButton.WithCallbackData("🚀 Apply IPO", "start_apply")]);
+
+        var videoPath = Path.Combine(env.ContentRootPath, "Assets", "intro.mp4");
+        if (File.Exists(videoPath))
+        {
+            await using var video = File.OpenRead(videoPath);
+            await sender.SendVideoAsync(chatId, video, WelcomeText, buttons);
+            return;
+        }
+
+        logger.LogWarning("[Start] intro video not found at {VideoPath}, falling back to text", videoPath);
+        await sender.SendKeyboardAsync(chatId, WelcomeText, buttons);
+    }
 
     public Task HandleHelpAsync(Message msg) =>
         sender.SendTextAsync(msg.Chat.Id, HelpText);

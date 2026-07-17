@@ -54,6 +54,27 @@ public sealed class FeatureDispatcher(
                 await sp.GetRequiredService<SettingsEndpoint>().HandleCallbackAsync(cb);
             else if (data.StartsWith("broadcast_"))
                 await sp.GetRequiredService<BroadcastEndpoint>().HandleCallbackAsync(cb);
+            else if (data.StartsWith("start_") && cb.Message is { } startMsg)
+            {
+                await sender.AnswerCallbackAsync(cb.Id);
+                switch (data)
+                {
+                    case "start_login":
+                        await sp.GetRequiredService<LoginEndpoint>().HandleAsync(startMsg);
+                        break;
+                    case "start_portfolio":
+                        await sp.GetRequiredService<GetPortfolioEndpoint>().HandleMessageAsync(startMsg, "");
+                        break;
+                    case "start_apply":
+                        if (cbChatId is not null && !userStore.IsApplyAllowed(cbChatId.Value))
+                        {
+                            await sender.SendTextAsync(cbChatId.Value, ApplyDisabledMessage);
+                            break;
+                        }
+                        await sp.GetRequiredService<ApplyIpoEndpoint>().HandleMessageAsync(startMsg, "");
+                        break;
+                }
+            }
             return;
         }
 

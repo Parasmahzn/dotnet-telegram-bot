@@ -24,6 +24,20 @@ public sealed class TelegramSender(ITelegramBotClient bot, ILogger<TelegramSende
             cancellationToken: ct);
     }
 
+    public Task SendVideoAsync(
+        long chatId,
+        Stream video,
+        string? caption = null,
+        IEnumerable<IEnumerable<InlineKeyboardButton>>? buttons = null,
+        CancellationToken ct = default)
+    {
+        logger.LogInformation("[SendVideo] chatId={ChatId}: \"{Caption}\"", chatId, Truncate(caption ?? ""));
+        return bot.SendVideo(chatId, InputFile.FromStream(video),
+            caption: caption,
+            replyMarkup: buttons is null ? null : new InlineKeyboardMarkup(buttons),
+            cancellationToken: ct);
+    }
+
     public Task EditTextAsync(long chatId, int messageId, string text, CancellationToken ct = default)
     {
         logger.LogInformation("[EditText] chatId={ChatId} messageId={MessageId}: \"{Text}\"", chatId, messageId, Truncate(text));
