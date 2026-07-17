@@ -19,10 +19,15 @@ public sealed class HelpEndpoint(TelegramSender sender)
         "🔔 /notify             — IPO availability notifications\n" +
         "⚙️ /settings           — Settings hub\n" +
         "👥 /users              — List registered chats (admin only)\n" +
+        "📢 /broadcast          — Send a message to all chats (admin only)\n" +
         "❓ /help               — Show this message";
 
     public Task HandleStartAsync(Message msg) =>
-        sender.SendTextAsync(msg.Chat.Id, "👋 Welcome to MeroShare Bot!\n\nType /help to see available commands.");
+        sender.SendTextAsync(msg.Chat.Id,
+            "👋 Welcome to MeroShare Bot!\n\n" +
+            "I automate MeroShare — Nepal's share application portal. Link your account, check open IPOs, and apply in a couple of taps.\n\n" +
+            "🔗 /login to link your MeroShare account\n" +
+            "❓ /help to see everything I can do");
 
     public Task HandleHelpAsync(Message msg) =>
         sender.SendTextAsync(msg.Chat.Id, HelpText);
